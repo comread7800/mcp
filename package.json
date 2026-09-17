@@ -1,0 +1,22 @@
+{
+  "name": "hostinger-files-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote MCP server for safely reading, editing and deploying files on Hostinger over SSH/SFTP.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "ssh2": "^1.17.0",
+    "zod": "^4.1.0"
+  }
+}
