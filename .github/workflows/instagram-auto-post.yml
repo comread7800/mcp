@@ -1,0 +1,123 @@
+name: Webkitti Instagram Auto Post
+
+on:
+  schedule:
+    # Run 10 minutes before target times in IST (UTC schedule).
+    - cron: '20 4 * * *'   # target 10:00 IST
+    - cron: '20 6 * * *'   # target 12:00 IST
+    - cron: '20 12 * * *'  # target 18:00 IST
+    - cron: '20 14 * * *'  # target 20:00 IST
+  workflow_dispatch:
+    inputs:
+      target_time:
+        description: 'Target publish time in IST (HH:MM)'
+        required: false
+        default: ''
+      publish:
+        description: 'Schedule in Metricool after generation'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webkitti-instagram-auto-post
+  cancel-in-progress: false
+
+jobs:
+  generate-and-schedule:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: instagram-automation
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_TEXT_MODEL: ${{ vars.OPENAI_TEXT_MODEL || 'gpt-5.6-luna' }}
+      OPENAI_IMAGE_MODEL: ${{ vars.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-flare' }}
+      METRICOOL_TOKEN: ${{ secrets.METRICOOL_TOKEN }}
+      METRICOOL_USER_ID: ${{ secrets.METRICOOL_USER_ID }}
+      METRICOOL_BLOG_ID: ${{ secrets.METRICOOL_BLOG_ID }}
+      METRICOOL_TIMEZONE: ${{ vars.METRICOOL_TIMEZONE || 'Asia/Calcutta' }}
+      METRICOOL_CREATOR_EMAIL: ${{ secrets.METRICOOL_CREATOR_EMAIL }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Resolve target time and publish mode
+        shell: bash
+        run: |
+          case "${{ github.event.schedule }}" in
+            "20 4 * * *") TARGET_TIME="10:00" ;;
+            "20 6 * * *") TARGET_TIME="12:00" ;;
+            "20 12 * * *") TARGET_TIME="18:00" ;;
+            "20 14 * * *") TARGET_TIME="20:00" ;;
+            *) TARGET_TIME="${{ inputs.target_time }}" ;;
+          esac
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            PUBLISH="true"
+          else
+            PUBLISH="${{ inputs.publish }}"
+          fi
+
+          echo "TARGET_TIME=$TARGET_TIME" >> "$GITHUB_ENV"
+          echo "PUBLISH=$PUBLISH" >> "$GITHUB_ENV"
+
+      - name: Preflight secrets
+        id: preflight
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::OPENAI_API_KEY is missing. Add it in Repository Settings > Secrets and variables > Actions."
+            exit 0
+          fi
+
+          if [ "$PUBLISH" = "true" ] && { [ -z "$METRICOOL_TOKEN" ] || [ -z "$METRICOOL_USER_ID" ] || [ -z "$METRICOOL_BLOG_ID" ]; }; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Metricool secrets are missing. Scheduled run skipped safely."
+            exit 0
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        if: steps.preflight.outputs.ready == 'true'
+        run: npm install --no-audit --no-fund
+
+      - name: Research trend and generate poster
+        if: steps.preflight.outputs.ready == 'true'
+        id: generate
+        run: node src/run.mjs
+
+      - name: Commit generated media
+        if: steps.preflight.outputs.ready == 'true'
+        working-directory: .
+        shell: bash
+        run: |
+          git config user.name "webkitti-automation"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add instagram-automation/generated/
+          if git diff --cached --quiet; then
+            echo "No generated files to commit."
+          else
+            git commit -m "automation: generate Instagram trend post"
+            git push origin HEAD:main
+          fi
+
+      - name: Schedule in Metricool
+        if: steps.preflight.outputs.ready == 'true'
+        env:
+          MEDIA_URL: ${{ steps.generate.outputs.media_url }}
+          META_PATH: ${{ steps.generate.outputs.meta_path }}
+        run: node src/schedule.mjs
