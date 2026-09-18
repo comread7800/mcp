@@ -20,7 +20,9 @@ function app_config(): array
 
     $config = $loaded;
     $config['app_name'] = (string)($config['app_name'] ?? 'Prompt Bridge');
-    $config['timezone'] = (string)($config['timezone'] ?? 'Asia/Kolkata');
+    // Force all scheduler calculations to India Standard Time (Mumbai/Delhi/Kolkata).
+    // IANA's canonical timezone identifier for India is Asia/Kolkata.
+    $config['timezone'] = 'Asia/Kolkata';
     $config['admin_password'] = (string)($config['admin_password'] ?? '');
     $config['mail_to'] = trim((string)($config['mail_to'] ?? ''));
     $config['mail_from'] = trim((string)($config['mail_from'] ?? ''));
@@ -58,6 +60,9 @@ function empty_state(): array
         'nextLogId' => 1,
         'schedules' => [],
         'logs' => [],
+        'meta' => [
+            'last_scheduler_check_at' => null,
+        ],
     ];
 }
 
@@ -85,6 +90,7 @@ function with_state(callable $callback, bool $write = false): mixed
         $state = array_merge(empty_state(), $state);
         $state['schedules'] = is_array($state['schedules']) ? $state['schedules'] : [];
         $state['logs'] = is_array($state['logs']) ? $state['logs'] : [];
+        $state['meta'] = is_array($state['meta'] ?? null) ? $state['meta'] : ['last_scheduler_check_at' => null];
 
         $result = $callback($state);
 
@@ -503,33 +509,36 @@ function process_due_schedules(): array
     $now = app_now();
     $weekday = (int)$now->format('N');
     $updatedAt = $now->format(DateTimeInterface::ATOM);
-    $graceSeconds = 10 * 60;
 
-    $due = with_state(static function (array &$state) use ($now, $weekday, $updatedAt, $graceSeconds): array {
+    $due = with_state(static function (array &$state) use ($now, $weekday, $updatedAt): array {
+        $state['meta']['last_scheduler_check_at'] = $updatedAt;
         $claimed = [];
+
         foreach ($state['schedules'] as &$schedule) {
             if ((int)$schedule['enabled'] !== 1) continue;
             if (!in_array($weekday, schedule_days($schedule['weekdays']), true)) continue;
 
             [$hour, $minute] = array_map('intval', explode(':', (string)$schedule['trigger_time']));
             $scheduledAt = $now->setTime($hour, $minute, 0);
-            $age = $now->getTimestamp() - $scheduledAt->getTimestamp();
 
-            // Allow a short catch-up window so a cron that runs a little late does not miss the job.
-            if ($age < 0 || $age > $graceSeconds) continue;
+            // Never run before the selected Mumbai/IST time.
+            if ($now < $scheduledAt) continue;
 
+            // One successful attempt per schedule/date. If cron starts late, catch up the same day.
             $runKey = $scheduledAt->format('Y-m-d H:i');
             if (($schedule['last_run_key'] ?? null) === $runKey) continue;
 
-            // Claim before delivery to prevent duplicate sends from overlapping cron invocations.
+            // Claim before delivery so overlapping cron calls cannot send duplicates.
             $schedule['last_run_key'] = $runKey;
             $schedule['updated_at'] = $updatedAt;
+
             $claimed[] = [
                 'schedule' => $schedule,
                 'run_key' => $runKey,
                 'scheduled_at' => $scheduledAt->format(DateTimeInterface::ATOM),
             ];
         }
+
         return $claimed;
     }, true);
 
@@ -541,9 +550,14 @@ function process_due_schedules(): array
 
         try {
             run_schedule($schedule, $scheduledAt, 'scheduled', $runKey);
-            $results[] = ['id' => (int)$schedule['id'], 'status' => 'sent'];
+            $results[] = [
+                'id' => (int)$schedule['id'],
+                'status' => 'sent',
+                'scheduledAt' => $scheduledAt->format(DateTimeInterface::ATOM),
+                'sentAt' => app_now()->format(DateTimeInterface::ATOM),
+            ];
         } catch (Throwable $e) {
-            // Release the claim so the next cron run inside the grace window can retry.
+            // Release the claim after SMTP failure so the next cron tick can retry.
             with_state(static function (array &$state) use ($schedule, $runKey, $updatedAt): void {
                 foreach ($state['schedules'] as &$stored) {
                     if ((int)$stored['id'] !== (int)$schedule['id']) continue;
@@ -555,8 +569,13 @@ function process_due_schedules(): array
                 }
             }, true);
 
-            $results[] = ['id' => (int)$schedule['id'], 'status' => 'failed', 'error' => $e->getMessage()];
+            $results[] = [
+                'id' => (int)$schedule['id'],
+                'status' => 'failed',
+                'error' => $e->getMessage(),
+            ];
         }
     }
+
     return $results;
 }
