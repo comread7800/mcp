@@ -151,13 +151,18 @@ An MCP server cannot independently push a new message into an already-open ChatG
 
 The configured Instagram account must be an Instagram **Professional** account (Business or Creator) with publishing permissions. A consumer Personal account is not supported by Meta's official content-publishing API. If this is your own personal-use account, convert that account to Creator or Business first.
 
-Create a Meta developer app, authorize your Instagram professional account, and obtain the Instagram user ID plus a suitable long-lived access token with content-publishing permission. Store them only in environment variables:
+Create a Meta developer app, add the Instagram product, and configure Business Login with the redirect URI `https://YOUR-MCP-DOMAIN/instagram/callback`. Then configure:
 
 ```env
-INSTAGRAM_USER_ID=...
-INSTAGRAM_ACCESS_TOKEN=...
+INSTAGRAM_APP_ID=...
+INSTAGRAM_APP_SECRET=...
 INSTAGRAM_API_VERSION=v26.0
+PUBLIC_BASE_URL=https://YOUR-MCP-DOMAIN
 ```
+
+After deployment, call the MCP tool `instagram_connect_url`, open the returned URL in your browser, and log into the Instagram account you want to connect. The callback exchanges the authorization code for a long-lived token, saves the Instagram-scoped user ID and username, and keeps the token out of MCP responses.
+
+If you prefer manual setup, `INSTAGRAM_USER_ID` and `INSTAGRAM_ACCESS_TOKEN` remain available as a fallback.
 
 ### OpenAI and public image configuration
 
@@ -177,7 +182,9 @@ DEFAULT_TIMEZONE=Asia/Kolkata
 
 | Tool | Purpose |
 | --- | --- |
-| `instagram_status` | Check configuration, schedule, and recent runs without exposing secrets |
+| `instagram_connect_url` | Get a short-lived browser login URL for connecting the owner account |
+| `instagram_disconnect` | Clear the stored account and disable its schedule; requires `confirm=true` |
+| `instagram_status` | Check configuration, connected account, schedule, and recent runs without exposing secrets |
 | `instagram_set_schedule` | Set timezone, posting times, default prompt, enable/disable, and dry-run mode |
 | `instagram_preview_post` | Generate caption + image but do not publish |
 | `instagram_generate_and_publish` | Generate and publish one post; requires `confirm=true` |
