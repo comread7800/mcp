@@ -27,10 +27,6 @@ function app_config(): array
     $config['message_tag'] = trim((string)($config['message_tag'] ?? 'SOCIAL_AUTOMATION')) ?: 'SOCIAL_AUTOMATION';
     $config['storage_path'] = (string)($config['storage_path'] ?? (__DIR__ . '/storage'));
 
-    if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
-        throw new RuntimeException('PDO SQLite is not enabled on this PHP server.');
-    }
-
     try {
         new DateTimeZone($config['timezone']);
     } catch (Throwable) {
@@ -40,60 +36,79 @@ function app_config(): array
     return $config;
 }
 
-function app_db(): PDO
+function storage_file(): string
 {
-    static $pdo = null;
-    if ($pdo instanceof PDO) {
-        return $pdo;
-    }
-
-    $config = app_config();
-    $storage = rtrim($config['storage_path'], DIRECTORY_SEPARATOR);
+    $storage = rtrim(app_config()['storage_path'], DIRECTORY_SEPARATOR);
     if (!is_dir($storage) && !mkdir($storage, 0700, true) && !is_dir($storage)) {
         throw new RuntimeException('Unable to create storage directory.');
     }
+    return $storage . DIRECTORY_SEPARATOR . 'prompt-bridge.json';
+}
 
-    $dbPath = $storage . DIRECTORY_SEPARATOR . 'prompt-bridge.sqlite';
-    $pdo = new PDO('sqlite:' . $dbPath, null, null, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-    $pdo->exec('PRAGMA journal_mode=WAL');
-    $pdo->exec('PRAGMA busy_timeout=5000');
+function empty_state(): array
+{
+    return [
+        'nextScheduleId' => 1,
+        'nextLogId' => 1,
+        'schedules' => [],
+        'logs' => [],
+    ];
+}
 
-    $pdo->exec(
-        'CREATE TABLE IF NOT EXISTS schedules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            prompt TEXT NOT NULL,
-            trigger_time TEXT NOT NULL,
-            publish_time TEXT NOT NULL,
-            weekdays TEXT NOT NULL DEFAULT "1,2,3,4,5,6,7",
-            enabled INTEGER NOT NULL DEFAULT 1,
-            last_run_key TEXT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )'
-    );
+function with_state(callable $callback, bool $write = false): mixed
+{
+    $path = storage_file();
+    $handle = fopen($path, 'c+');
+    if ($handle === false) {
+        throw new RuntimeException('Unable to open storage file.');
+    }
 
-    $pdo->exec(
-        'CREATE TABLE IF NOT EXISTS run_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            schedule_id INTEGER NULL,
-            run_key TEXT NULL,
-            status TEXT NOT NULL,
-            message TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )'
-    );
+    $lock = $write ? LOCK_EX : LOCK_SH;
+    if (!flock($handle, $lock)) {
+        fclose($handle);
+        throw new RuntimeException('Unable to lock storage file.');
+    }
 
-    return $pdo;
+    try {
+        rewind($handle);
+        $raw = stream_get_contents($handle);
+        $state = $raw !== false && trim($raw) !== '' ? json_decode($raw, true) : empty_state();
+        if (!is_array($state)) {
+            throw new RuntimeException('Storage file is invalid JSON.');
+        }
+        $state = array_merge(empty_state(), $state);
+        $state['schedules'] = is_array($state['schedules']) ? $state['schedules'] : [];
+        $state['logs'] = is_array($state['logs']) ? $state['logs'] : [];
+
+        $result = $callback($state);
+
+        if ($write) {
+            $encoded = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+            rewind($handle);
+            ftruncate($handle, 0);
+            if (fwrite($handle, $encoded) === false) {
+                throw new RuntimeException('Unable to write storage file.');
+            }
+            fflush($handle);
+            @chmod($path, 0600);
+        }
+
+        return $result;
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
+function app_db(): bool
+{
+    storage_file();
+    return true;
 }
 
 function app_now(): DateTimeImmutable
 {
-    $config = app_config();
-    return new DateTimeImmutable('now', new DateTimeZone($config['timezone']));
+    return new DateTimeImmutable('now', new DateTimeZone(app_config()['timezone']));
 }
 
 function app_start_session(): void
@@ -121,11 +136,9 @@ function app_login(string $password): bool
     if ($expected === '' || $expected === 'CHANGE_ME_NOW') {
         return false;
     }
-
     if (!hash_equals($expected, $password)) {
         return false;
     }
-
     session_regenerate_id(true);
     $_SESSION['logged_in'] = true;
     return true;
@@ -209,15 +222,25 @@ function schedule_days(string $value): array
 
 function all_schedules(): array
 {
-    return app_db()->query('SELECT * FROM schedules ORDER BY enabled DESC, trigger_time ASC, id DESC')->fetchAll();
+    $schedules = with_state(fn(array $state) => $state['schedules']);
+    usort($schedules, static function (array $a, array $b): int {
+        $enabled = ((int)$b['enabled']) <=> ((int)$a['enabled']);
+        if ($enabled !== 0) return $enabled;
+        $time = strcmp((string)$a['trigger_time'], (string)$b['trigger_time']);
+        if ($time !== 0) return $time;
+        return ((int)$b['id']) <=> ((int)$a['id']);
+    });
+    return $schedules;
 }
 
 function get_schedule(int $id): ?array
 {
-    $stmt = app_db()->prepare('SELECT * FROM schedules WHERE id = ?');
-    $stmt->execute([$id]);
-    $row = $stmt->fetch();
-    return $row ?: null;
+    return with_state(static function (array $state) use ($id): ?array {
+        foreach ($state['schedules'] as $schedule) {
+            if ((int)$schedule['id'] === $id) return $schedule;
+        }
+        return null;
+    });
 }
 
 function save_schedule(array $data, ?int $id = null): int
@@ -228,72 +251,112 @@ function save_schedule(array $data, ?int $id = null): int
     $publish = trim((string)($data['publish_time'] ?? ''));
     $weekdays = normalize_weekdays((array)($data['weekdays'] ?? []));
 
-    if ($name === '') {
-        throw new RuntimeException('Schedule name is required.');
-    }
-    if ($prompt === '') {
-        throw new RuntimeException('Prompt is required.');
-    }
-    if (!valid_hhmm($trigger) || !valid_hhmm($publish)) {
-        throw new RuntimeException('Trigger and publish times must use HH:MM.');
-    }
+    if ($name === '') throw new RuntimeException('Schedule name is required.');
+    if ($prompt === '') throw new RuntimeException('Prompt is required.');
+    if (!valid_hhmm($trigger) || !valid_hhmm($publish)) throw new RuntimeException('Trigger and publish times must use HH:MM.');
 
     $now = app_now()->format(DateTimeInterface::ATOM);
-    $db = app_db();
 
-    if ($id !== null) {
-        $stmt = $db->prepare('UPDATE schedules SET name=?, prompt=?, trigger_time=?, publish_time=?, weekdays=?, updated_at=? WHERE id=?');
-        $stmt->execute([$name, $prompt, $trigger, $publish, $weekdays, $now, $id]);
-        return $id;
-    }
+    return with_state(static function (array &$state) use ($id, $name, $prompt, $trigger, $publish, $weekdays, $now): int {
+        if ($id !== null) {
+            foreach ($state['schedules'] as &$schedule) {
+                if ((int)$schedule['id'] === $id) {
+                    $schedule['name'] = $name;
+                    $schedule['prompt'] = $prompt;
+                    $schedule['trigger_time'] = $trigger;
+                    $schedule['publish_time'] = $publish;
+                    $schedule['weekdays'] = $weekdays;
+                    $schedule['updated_at'] = $now;
+                    return $id;
+                }
+            }
+            throw new RuntimeException('Schedule not found.');
+        }
 
-    $stmt = $db->prepare('INSERT INTO schedules(name,prompt,trigger_time,publish_time,weekdays,enabled,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)');
-    $stmt->execute([$name, $prompt, $trigger, $publish, $weekdays, $now, $now]);
-    return (int)$db->lastInsertId();
+        $newId = max(1, (int)$state['nextScheduleId']);
+        $state['nextScheduleId'] = $newId + 1;
+        $state['schedules'][] = [
+            'id' => $newId,
+            'name' => $name,
+            'prompt' => $prompt,
+            'trigger_time' => $trigger,
+            'publish_time' => $publish,
+            'weekdays' => $weekdays,
+            'enabled' => 1,
+            'last_run_key' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+        return $newId;
+    }, true);
 }
 
 function toggle_schedule(int $id): void
 {
-    $stmt = app_db()->prepare('UPDATE schedules SET enabled = CASE enabled WHEN 1 THEN 0 ELSE 1 END, updated_at=? WHERE id=?');
-    $stmt->execute([app_now()->format(DateTimeInterface::ATOM), $id]);
+    $now = app_now()->format(DateTimeInterface::ATOM);
+    with_state(static function (array &$state) use ($id, $now): void {
+        foreach ($state['schedules'] as &$schedule) {
+            if ((int)$schedule['id'] === $id) {
+                $schedule['enabled'] = (int)$schedule['enabled'] === 1 ? 0 : 1;
+                $schedule['updated_at'] = $now;
+                return;
+            }
+        }
+        throw new RuntimeException('Schedule not found.');
+    }, true);
 }
 
 function delete_schedule(int $id): void
 {
-    $db = app_db();
-    $db->beginTransaction();
-    try {
-        $stmt = $db->prepare('DELETE FROM run_logs WHERE schedule_id=?');
-        $stmt->execute([$id]);
-        $stmt = $db->prepare('DELETE FROM schedules WHERE id=?');
-        $stmt->execute([$id]);
-        $db->commit();
-    } catch (Throwable $e) {
-        $db->rollBack();
-        throw $e;
-    }
+    with_state(static function (array &$state) use ($id): void {
+        $before = count($state['schedules']);
+        $state['schedules'] = array_values(array_filter($state['schedules'], fn(array $s) => (int)$s['id'] !== $id));
+        if (count($state['schedules']) === $before) throw new RuntimeException('Schedule not found.');
+        $state['logs'] = array_values(array_filter($state['logs'], fn(array $l) => (int)($l['schedule_id'] ?? 0) !== $id));
+    }, true);
 }
 
 function recent_logs(int $limit = 40): array
 {
     $limit = max(1, min(100, $limit));
-    $sql = 'SELECT l.*, s.name AS schedule_name FROM run_logs l LEFT JOIN schedules s ON s.id=l.schedule_id ORDER BY l.id DESC LIMIT ' . $limit;
-    return app_db()->query($sql)->fetchAll();
+    return with_state(static function (array $state) use ($limit): array {
+        $names = [];
+        foreach ($state['schedules'] as $schedule) $names[(int)$schedule['id']] = $schedule['name'];
+        $logs = array_reverse($state['logs']);
+        $logs = array_slice($logs, 0, $limit);
+        foreach ($logs as &$log) {
+            $sid = (int)($log['schedule_id'] ?? 0);
+            $log['schedule_name'] = $sid && isset($names[$sid]) ? $names[$sid] : 'System';
+        }
+        return $logs;
+    });
 }
 
 function add_log(?int $scheduleId, ?string $runKey, string $status, string $message): void
 {
-    $stmt = app_db()->prepare('INSERT INTO run_logs(schedule_id,run_key,status,message,created_at) VALUES(?,?,?,?,?)');
-    $stmt->execute([$scheduleId, $runKey, $status, $message, app_now()->format(DateTimeInterface::ATOM)]);
+    $createdAt = app_now()->format(DateTimeInterface::ATOM);
+    with_state(static function (array &$state) use ($scheduleId, $runKey, $status, $message, $createdAt): void {
+        $id = max(1, (int)$state['nextLogId']);
+        $state['nextLogId'] = $id + 1;
+        $state['logs'][] = [
+            'id' => $id,
+            'schedule_id' => $scheduleId,
+            'run_key' => $runKey,
+            'status' => $status,
+            'message' => $message,
+            'created_at' => $createdAt,
+        ];
+        if (count($state['logs']) > 250) {
+            $state['logs'] = array_slice($state['logs'], -250);
+        }
+    }, true);
 }
 
 function publish_at_for(array $schedule, DateTimeImmutable $triggeredAt): DateTimeImmutable
 {
     [$hour, $minute] = array_map('intval', explode(':', $schedule['publish_time']));
     $target = $triggeredAt->setTime($hour, $minute, 0);
-    if ($target <= $triggeredAt) {
-        $target = $target->modify('+1 day');
-    }
+    if ($target <= $triggeredAt) $target = $target->modify('+1 day');
     return $target;
 }
 
@@ -322,12 +385,8 @@ function build_slack_message(array $schedule, DateTimeImmutable $triggeredAt, st
 function slack_send(string $text): array
 {
     $url = trim(app_config()['slack_webhook_url']);
-    if ($url === '' || str_contains($url, 'REPLACE/ME')) {
-        throw new RuntimeException('Slack webhook is not configured in config.php.');
-    }
-    if (!str_starts_with($url, 'https://hooks.slack.com/')) {
-        throw new RuntimeException('Slack webhook URL must use https://hooks.slack.com/.');
-    }
+    if ($url === '' || str_contains($url, 'REPLACE/ME')) throw new RuntimeException('Slack webhook is not configured in config.php.');
+    if (!str_starts_with($url, 'https://hooks.slack.com/')) throw new RuntimeException('Slack webhook URL must use https://hooks.slack.com/.');
 
     $payload = json_encode(['text' => $text], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
@@ -345,9 +404,7 @@ function slack_send(string $text): array
         $error = curl_error($ch);
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
-        if ($body === false) {
-            throw new RuntimeException('Slack request failed: ' . $error);
-        }
+        if ($body === false) throw new RuntimeException('Slack request failed: ' . $error);
     } else {
         $context = stream_context_create([
             'http' => [
@@ -361,19 +418,14 @@ function slack_send(string $text): array
         $body = @file_get_contents($url, false, $context);
         $status = 0;
         foreach ($http_response_header ?? [] as $line) {
-            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) {
-                $status = (int)$m[1];
-            }
+            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) $status = (int)$m[1];
         }
-        if ($body === false) {
-            throw new RuntimeException('Slack request failed. Enable PHP cURL for clearer network errors.');
-        }
+        if ($body === false) throw new RuntimeException('Slack request failed. Enable PHP cURL for clearer network errors.');
     }
 
     if ($status < 200 || $status >= 300 || trim((string)$body) !== 'ok') {
         throw new RuntimeException('Slack returned HTTP ' . $status . ': ' . trim((string)$body));
     }
-
     return ['ok' => true, 'status' => $status, 'body' => trim((string)$body)];
 }
 
@@ -393,9 +445,7 @@ function run_schedule(array $schedule, DateTimeImmutable $triggeredAt, string $s
 function run_schedule_now(int $id): array
 {
     $schedule = get_schedule($id);
-    if (!$schedule) {
-        throw new RuntimeException('Schedule not found.');
-    }
+    if (!$schedule) throw new RuntimeException('Schedule not found.');
     return run_schedule($schedule, app_now(), 'manual');
 }
 
@@ -405,26 +455,24 @@ function process_due_schedules(): array
     $currentTime = $now->format('H:i');
     $weekday = (int)$now->format('N');
     $runKey = $now->format('Y-m-d H:i');
+    $updatedAt = $now->format(DateTimeInterface::ATOM);
+
+    $due = with_state(static function (array &$state) use ($currentTime, $weekday, $runKey, $updatedAt): array {
+        $claimed = [];
+        foreach ($state['schedules'] as &$schedule) {
+            if ((int)$schedule['enabled'] !== 1) continue;
+            if ($schedule['trigger_time'] !== $currentTime) continue;
+            if (!in_array($weekday, schedule_days($schedule['weekdays']), true)) continue;
+            if (($schedule['last_run_key'] ?? null) === $runKey) continue;
+            $schedule['last_run_key'] = $runKey;
+            $schedule['updated_at'] = $updatedAt;
+            $claimed[] = $schedule;
+        }
+        return $claimed;
+    }, true);
+
     $results = [];
-
-    $stmt = app_db()->query('SELECT * FROM schedules WHERE enabled=1 ORDER BY id ASC');
-    foreach ($stmt->fetchAll() as $schedule) {
-        if ($schedule['trigger_time'] !== $currentTime) {
-            continue;
-        }
-        if (!in_array($weekday, schedule_days($schedule['weekdays']), true)) {
-            continue;
-        }
-        if (($schedule['last_run_key'] ?? null) === $runKey) {
-            continue;
-        }
-
-        $claim = app_db()->prepare('UPDATE schedules SET last_run_key=?, updated_at=? WHERE id=? AND (last_run_key IS NULL OR last_run_key<>?)');
-        $claim->execute([$runKey, $now->format(DateTimeInterface::ATOM), $schedule['id'], $runKey]);
-        if ($claim->rowCount() !== 1) {
-            continue;
-        }
-
+    foreach ($due as $schedule) {
         try {
             run_schedule($schedule, $now, 'scheduled', $runKey);
             $results[] = ['id' => (int)$schedule['id'], 'status' => 'sent'];
@@ -432,6 +480,5 @@ function process_due_schedules(): array
             $results[] = ['id' => (int)$schedule['id'], 'status' => 'failed', 'error' => $e->getMessage()];
         }
     }
-
     return $results;
 }
