@@ -205,7 +205,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
                                     <strong><?= e($schedule['name']) ?></strong>
                                     <span class="badge <?= (int)$schedule['enabled'] === 1 ? 'on' : 'off' ?>"><?= (int)$schedule['enabled'] === 1 ? 'Enabled' : 'Paused' ?></span>
                                 </div>
-                                <p><?= e(mb_strimwidth($schedule['prompt'], 0, 180, '…')) ?></p>
+                                <p><?= e(app_excerpt($schedule['prompt'], 180)) ?></p>
                                 <div class="meta">
                                     <span>Trigger <?= e($schedule['trigger_time']) ?></span>
                                     <span>Publish <?= e($schedule['publish_time']) ?></span>
