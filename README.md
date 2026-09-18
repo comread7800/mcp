@@ -1,13 +1,13 @@
 # Prompt Bridge
 
-A clean single-user scheduler for this flow:
+A single-user scheduler for this flow:
 
 ~~~text
 Your website schedule
         ↓
-Slack channel message
+Email to your monitored inbox
         ↓
-ChatGPT Work event trigger
+ChatGPT Work Gmail event trigger
         ↓
 AI creates/researches the post + media
         ↓
@@ -16,137 +16,40 @@ Connected Metricool plugin
 Instagram scheduled/published by Metricool
 ~~~
 
-This project does **not** use ChatGPT's time scheduler and does **not** call the OpenAI API. Your own hosting cron decides when the prompt is sent.
+This project does **not** use ChatGPT's time-based scheduler and does **not** call the OpenAI API. Your own hosting cron decides when the prompt email is sent.
 
 ## Features
 
 - Password-protected dashboard
 - Daily/weekly prompt schedules
 - Separate trigger time and Metricool publish time
-- Slack Incoming Webhook delivery
-- Stable [SOCIAL_AUTOMATION] message tag for ChatGPT Work
+- Email delivery using PHP mail()
+- Stable [SOCIAL_AUTOMATION] subject/body tag for ChatGPT Work
 - Run now, edit, pause/enable and delete
 - JSON delivery log with file locking
 - No Instagram API credentials
 - No OpenAI API key
+- No Slack dependency
 
 ## Requirements
 
 - PHP 8.1+
-- PHP cURL recommended
 - HTTPS hosting
-- Slack Incoming Webhook
-- ChatGPT Work Slack event trigger for the same channel
-- Metricool connected to ChatGPT and Instagram connected inside Metricool
+- PHP mail() enabled by the host
+- One inbox that ChatGPT Work can monitor through Gmail
+- ChatGPT Work Gmail event trigger
+- Metricool connected to ChatGPT
+- Instagram connected inside Metricool
 
-## 1. Upload
+## 1. Deploy
 
-Upload the repository to a dedicated folder or subdomain on your hosting.
-
-Example:
-
-~~~text
-/home/USER/domains/automation.example.com/public_html/
-~~~
-
-## 2. Configure
-
-Copy:
-
-~~~bash
-cp social-scheduler/config.example.php social-scheduler/config.php
-~~~
-
-Edit social-scheduler/config.php:
-
-~~~php
-return [
-    'app_name' => 'My Social Scheduler',
-    'timezone' => 'Asia/Kolkata',
-    'admin_password' => 'use-a-long-unique-password',
-    'slack_webhook_url' => 'https://hooks.slack.com/services/...',
-    'cron_secret' => 'another-long-random-secret',
-    'message_tag' => 'SOCIAL_AUTOMATION',
-    'storage_path' => __DIR__ . '/storage',
-];
-~~~
-
-social-scheduler/config.php is ignored by Git and must never be committed.
-
-## 3. Slack
-
-Create or reuse a Slack app, enable Incoming Webhooks, and point one webhook at a private automation channel such as:
+Deploy the repository so this folder is reachable:
 
 ~~~text
-#chatgpt-social-queue
+/social-scheduler/
 ~~~
 
-Paste that webhook URL into config.php.
-
-Log in to Prompt Bridge and press **Test Slack**. A test message should arrive in the channel.
-
-## 4. ChatGPT Work setup
-
-Create one Slack event-triggered Work task for the same channel. The website controls **time**; the Work task only reacts to new Slack messages.
-
-Use an instruction equivalent to:
-
-~~~text
-When a new Slack message starts with [SOCIAL_AUTOMATION], execute the PROMPT completely.
-Research current information when the prompt requires it.
-Create the required Instagram caption and visual/media.
-Then use my connected Metricool plugin to schedule the finished Instagram post for PUBLISH_AT.
-Do not create a ChatGPT time-based schedule.
-Ignore messages with SOURCE: TEST.
-If Metricool succeeds, return the planner link/status.
-If a required input is genuinely missing, report the exact blocker.
-~~~
-
-Metricool remains the publishing layer. Prompt Bridge never needs your Instagram password or token.
-
-## 5. Your own cron
-
-### Preferred: PHP CLI cron
-
-Run every minute:
-
-~~~cron
-* * * * * /usr/bin/php /home/USER/domains/automation.example.com/public_html/social-scheduler/cron.php >/dev/null 2>&1
-~~~
-
-Use the exact PHP path and site path from your host.
-
-### Alternative: HTTP cron
-
-If your host only supports URL cron jobs:
-
-~~~text
-https://automation.example.com/social-scheduler/cron.php?key=YOUR_CRON_SECRET
-~~~
-
-Run it every minute and keep the secret private.
-
-## Publish-time behavior
-
-Example:
-
-- Trigger: 08:00
-- Publish in Metricool: 10:00
-
-At 08:00 Prompt Bridge sends the Slack job. ChatGPT Work then creates the post and schedules it in Metricool for 10:00.
-
-If publish time is earlier than or equal to trigger time, Prompt Bridge uses the **next day**. Example: trigger 20:00, publish 09:00 means tomorrow at 09:00.
-
-## Security
-
-- Keep config.php private.
-- Use a dedicated Slack channel/webhook.
-- Use a strong dashboard password and cron secret.
-- Use HTTPS.
-- .htaccess blocks direct access to application/config files and storage on Apache-compatible hosting.
-- If your host ignores .htaccess, move storage_path outside public_html and deny web access to config.php.
-
-## Folder layout
+Folder layout:
 
 ~~~text
 social-scheduler/
@@ -162,4 +65,116 @@ social-scheduler/
     └── .htaccess
 ~~~
 
-Deploy the repository so the folder is available at /social-scheduler/. Then copy social-scheduler/config.example.php to social-scheduler/config.php on the server.
+## 2. Configure
+
+On the server copy:
+
+~~~bash
+cp social-scheduler/config.example.php social-scheduler/config.php
+~~~
+
+Edit social-scheduler/config.php:
+
+~~~php
+<?php
+return [
+    'app_name' => 'My Social Scheduler',
+    'timezone' => 'Asia/Kolkata',
+    'admin_password' => 'use-a-long-unique-password',
+
+    'mail_to' => 'YOUR_GMAIL_ADDRESS',
+    'mail_from' => 'automation@YOUR_DOMAIN',
+    'mail_from_name' => 'Prompt Bridge',
+
+    'cron_secret' => 'another-long-random-secret',
+    'message_tag' => 'SOCIAL_AUTOMATION',
+    'storage_path' => __DIR__ . '/storage',
+];
+~~~
+
+Use a real mailbox on your own domain for mail_from when possible. It generally gives better deliverability than using an unrelated From address.
+
+config.php is ignored by Git and must never be committed.
+
+## 3. Test email delivery
+
+Open the scheduler dashboard and press **Test Email**.
+
+The inbox configured in mail_to should receive an email with a subject similar to:
+
+~~~text
+[SOCIAL_AUTOMATION] Prompt Bridge TEST
+~~~
+
+Its body contains:
+
+~~~text
+[SOCIAL_AUTOMATION]
+SOURCE: TEST
+...
+~~~
+
+The ChatGPT Work trigger must ignore SOURCE: TEST.
+
+## 4. ChatGPT Work Gmail trigger
+
+Connect the Gmail account that receives mail_to to ChatGPT.
+
+Create one event-triggered Work task for new Gmail messages matching the automation tag.
+
+Suggested instruction:
+
+~~~text
+When a new Gmail message has a subject starting with [SOCIAL_AUTOMATION]:
+
+If the email body contains SOURCE: TEST, ignore it and take no action.
+
+Read PUBLISH_AT and PROMPT from the email body.
+Execute the PROMPT completely.
+Research current information when required.
+Create the complete Instagram caption and required visual/media.
+Then use my connected Metricool plugin to schedule the finished Instagram post for exactly PUBLISH_AT.
+
+Do not create or use a ChatGPT time-based schedule. The website already controls the trigger time.
+
+If Metricool succeeds, return the planner link/status.
+If a genuinely required input is missing, report the exact blocker instead of inventing it.
+~~~
+
+## 5. Your own cron
+
+Preferred PHP CLI cron, once per minute:
+
+~~~cron
+* * * * * /usr/bin/php /home/USER/domains/YOUR_DOMAIN/public_html/social-scheduler/cron.php >/dev/null 2>&1
+~~~
+
+Use the exact PHP binary and site path from your host.
+
+If your host only supports URL cron jobs:
+
+~~~text
+https://YOUR_DOMAIN/social-scheduler/cron.php?key=YOUR_CRON_SECRET
+~~~
+
+Run it every minute and keep the secret private.
+
+## Publish-time behavior
+
+Example:
+
+- Trigger: 08:00
+- Publish in Metricool: 10:00
+
+At 08:00 Prompt Bridge sends the structured email. ChatGPT Work reacts to that incoming email, creates the post, and schedules it in Metricool for 10:00.
+
+If publish time is earlier than or equal to trigger time, Prompt Bridge uses the next day. Example: trigger 20:00, publish 09:00 means tomorrow at 09:00.
+
+## Security
+
+- Keep config.php private.
+- Use a strong dashboard password and cron secret.
+- Use HTTPS.
+- Do not publish mailbox credentials in Git.
+- .htaccess blocks direct access to application/config files and storage on Apache-compatible hosting.
+- If your host ignores .htaccess, move storage_path outside public_html and deny web access to config.php.
