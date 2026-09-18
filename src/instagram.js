@@ -11,6 +11,11 @@ const defaultTimezone = process.env.DEFAULT_TIMEZONE || 'Asia/Kolkata';
 const defaultPrompt = process.env.INSTAGRAM_DEFAULT_PROMPT || 'Create a useful, polished Instagram post about AI tools, websites, design, coding, or automation. Make it practical and avoid repeating recent posts.';
 const textModel = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
 const imageModel = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
+const instagramAppId = process.env.INSTAGRAM_APP_ID || '';
+const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || '';
+const instagramRedirectUri = process.env.INSTAGRAM_REDIRECT_URI || (publicBaseUrl ? publicBaseUrl + '/instagram/callback' : '');
+const instagramLoginUrl = process.env.INSTAGRAM_LOGIN_URL || '';
+const oauthStateSecret = process.env.INSTAGRAM_OAUTH_STATE_SECRET || process.env.MCP_ACCESS_TOKEN || '';
 let busy = false;
 let timer = null;
 
@@ -18,6 +23,8 @@ function baseState() {
   return {
     accessToken: null,
     tokenRefreshedAt: null,
+    instagramUserId: null,
+    instagramUsername: null,
     schedule: { enabled: false, timezone: defaultTimezone, times: [], prompt: defaultPrompt, dryRun: true, lastKey: null },
     runs: []
   };
@@ -49,6 +56,102 @@ async function saveState(state) {
 function need(name, value) {
   if (!value) throw new Error(name + ' is not configured');
   return value;
+}
+
+
+function oauthState() {
+  need('INSTAGRAM_OAUTH_STATE_SECRET or MCP_ACCESS_TOKEN', oauthStateSecret);
+  const issued = String(Date.now());
+  const nonce = crypto.randomBytes(12).toString('hex');
+  const payload = issued + '.' + nonce;
+  const sig = crypto.createHmac('sha256', oauthStateSecret).update(payload).digest('hex');
+  return Buffer.from(payload + '.' + sig).toString('base64url');
+}
+
+function verifyOauthState(value) {
+  need('INSTAGRAM_OAUTH_STATE_SECRET or MCP_ACCESS_TOKEN', oauthStateSecret);
+  let decoded;
+  try { decoded = Buffer.from(String(value || ''), 'base64url').toString('utf8'); } catch { throw new Error('Invalid OAuth state'); }
+  const parts = decoded.split('.');
+  if (parts.length !== 3) throw new Error('Invalid OAuth state');
+  const [issued, nonce, sig] = parts;
+  const expected = crypto.createHmac('sha256', oauthStateSecret).update(issued + '.' + nonce).digest('hex');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) throw new Error('Invalid OAuth state signature');
+  if (!/^\d+$/.test(issued) || Date.now() - Number(issued) > 15 * 60 * 1000) throw new Error('OAuth state expired');
+}
+
+export function getInstagramConnectUrl() {
+  need('INSTAGRAM_APP_ID', instagramAppId);
+  need('INSTAGRAM_REDIRECT_URI or PUBLIC_BASE_URL', instagramRedirectUri);
+  const state = oauthState();
+  if (instagramLoginUrl) {
+    const url = new URL(instagramLoginUrl);
+    url.searchParams.set('state', state);
+    return url.toString();
+  }
+  const url = new URL('https://www.instagram.com/oauth/authorize');
+  url.searchParams.set('client_id', instagramAppId);
+  url.searchParams.set('redirect_uri', instagramRedirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', 'instagram_business_basic,instagram_business_content_publish');
+  url.searchParams.set('state', state);
+  url.searchParams.set('enable_fb_login', '0');
+  url.searchParams.set('force_reauth', 'true');
+  return url.toString();
+}
+
+export async function handleInstagramOAuthCallback({ code, state: stateValue }) {
+  verifyOauthState(stateValue);
+  need('Instagram authorization code', code);
+  need('INSTAGRAM_APP_ID', instagramAppId);
+  need('INSTAGRAM_APP_SECRET', instagramAppSecret);
+  need('INSTAGRAM_REDIRECT_URI or PUBLIC_BASE_URL', instagramRedirectUri);
+
+  const shortBody = new URLSearchParams({
+    client_id: instagramAppId,
+    client_secret: instagramAppSecret,
+    grant_type: 'authorization_code',
+    redirect_uri: instagramRedirectUri,
+    code: String(code).replace(/#_$/, '')
+  });
+  const short = await fetchJson('https://api.instagram.com/oauth/access_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: shortBody
+  });
+  const shortToken = need('Instagram short-lived access token', short.access_token);
+
+  const longParams = new URLSearchParams({
+    grant_type: 'ig_exchange_token',
+    client_secret: instagramAppSecret,
+    access_token: shortToken
+  });
+  const long = await fetchJson('https://graph.instagram.com/access_token?' + longParams.toString());
+  const accessToken = long.access_token || shortToken;
+
+  const meParams = new URLSearchParams({ fields: 'user_id,username', access_token: accessToken });
+  const me = await fetchJson(graphBase + '/me?' + meParams.toString());
+  const stateData = await loadState();
+  stateData.accessToken = accessToken;
+  stateData.tokenRefreshedAt = new Date().toISOString();
+  stateData.instagramUserId = String(me.user_id || short.user_id || me.id || '');
+  stateData.instagramUsername = me.username || null;
+  if (!stateData.instagramUserId) throw new Error('Instagram user ID was not returned');
+  await saveState(stateData);
+  return { ok: true, instagramUserId: stateData.instagramUserId, username: stateData.instagramUsername };
+}
+
+export async function disconnectInstagram() {
+  const state = await loadState();
+  state.accessToken = null;
+  state.tokenRefreshedAt = null;
+  state.instagramUserId = null;
+  state.instagramUsername = null;
+  state.schedule.enabled = false;
+  await saveState(state);
+  return { ok: true, disconnected: true };
 }
 
 async function fetchJson(url, options = {}) {
@@ -145,9 +248,17 @@ async function createImage(prompt) {
 
 export async function instagramStatus() {
   const state = await loadState();
+  const userId = state.instagramUserId || process.env.INSTAGRAM_USER_ID || null;
   return {
-    configured: { instagram: Boolean(process.env.INSTAGRAM_USER_ID && tokenFrom(state)), openai: Boolean(process.env.OPENAI_API_KEY), publicBaseUrl: Boolean(publicBaseUrl) },
-    instagramUserId: process.env.INSTAGRAM_USER_ID || null,
+    configured: {
+      instagram: Boolean(userId && tokenFrom(state)),
+      instagramOAuth: Boolean(instagramAppId && instagramAppSecret && instagramRedirectUri),
+      openai: Boolean(process.env.OPENAI_API_KEY),
+      publicBaseUrl: Boolean(publicBaseUrl)
+    },
+    instagramUserId: userId,
+    instagramUsername: state.instagramUsername || null,
+    connectUrlAvailable: Boolean(instagramAppId && instagramRedirectUri),
     schedule: state.schedule,
     recentRuns: state.runs.slice(-5)
   };
@@ -169,7 +280,7 @@ export async function publishInstagramImage({ imageUrl, caption }) {
   let state = await loadState();
   state = await refreshInstagramToken(state);
   const accessToken = need('INSTAGRAM_ACCESS_TOKEN', tokenFrom(state));
-  const userId = need('INSTAGRAM_USER_ID', process.env.INSTAGRAM_USER_ID);
+  const userId = need('Instagram user ID', state.instagramUserId || process.env.INSTAGRAM_USER_ID);
   const createBody = new URLSearchParams({ image_url: imageUrl, caption: caption || '', access_token: accessToken });
   const container = await fetchJson(graphBase + '/' + encodeURIComponent(userId) + '/media', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: createBody });
   const creationId = need('Instagram creation id', container.id);
