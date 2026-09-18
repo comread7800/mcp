@@ -131,12 +131,17 @@ export async function handleInstagramOAuthCallback({ code, state: stateValue }) 
   const long = await fetchJson('https://graph.instagram.com/access_token?' + longParams.toString());
   const accessToken = long.access_token || shortToken;
 
-  const meParams = new URLSearchParams({ fields: 'user_id,username', access_token: accessToken });
-  const me = await fetchJson(graphBase + '/me?' + meParams.toString());
+  let me = {};
+  try {
+    const meParams = new URLSearchParams({ fields: 'user_id,username', access_token: accessToken });
+    me = await fetchJson(graphBase + '/me?' + meParams.toString());
+  } catch (error) {
+    console.error('[instagram] profile lookup skipped:', error.message);
+  }
   const stateData = await loadState();
   stateData.accessToken = accessToken;
   stateData.tokenRefreshedAt = new Date().toISOString();
-  stateData.instagramUserId = String(me.user_id || short.user_id || me.id || '');
+  stateData.instagramUserId = String(short.user_id || me.user_id || me.id || '');
   stateData.instagramUsername = me.username || null;
   if (!stateData.instagramUserId) throw new Error('Instagram user ID was not returned');
   await saveState(stateData);
@@ -297,7 +302,7 @@ export async function runInstagramPost({ prompt, publish = false, source = 'manu
   try {
     const plan = await createPostPlan(String(prompt || state.schedule.prompt).trim(), state);
     const imageUrl = await createImage(plan.imagePrompt);
-    const shouldPublish = publish && !state.schedule.dryRun;
+    const shouldPublish = publish && (source !== 'schedule' || !state.schedule.dryRun);
     const result = shouldPublish ? await publishInstagramImage({ imageUrl, caption: plan.caption }) : null;
     state = await loadState();
     const run = { id: crypto.randomUUID(), source, startedAt, finishedAt: new Date().toISOString(), status: shouldPublish ? 'published' : 'preview', caption: plan.caption, imagePrompt: plan.imagePrompt, imageUrl, mediaId: result?.mediaId || null };
