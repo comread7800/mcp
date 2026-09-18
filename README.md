@@ -29,7 +29,6 @@ This project does **not** use ChatGPT's time-based scheduler and does **not** ca
 - JSON delivery log with file locking
 - No Instagram API credentials
 - No OpenAI API key
-- No Slack dependency
 
 ## Requirements
 
