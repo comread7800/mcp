@@ -1,6 +1,7 @@
 <?php
 return [
     'app_name' => 'Prompt Bridge',
+    // Scheduler is forced to Mumbai / IST (IANA: Asia/Kolkata).
     'timezone' => 'Asia/Kolkata',
     'admin_password' => 'CHANGE_ME_NOW',
 
