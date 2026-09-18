@@ -120,7 +120,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
             <div>
                 <div class="eyebrow">Important</div>
                 <h2>This site does not use ChatGPT's time scheduler.</h2>
-                <p>Your hosting cron controls the trigger time. At that minute this site sends your structured prompt through authenticated Gmail SMTP. A ChatGPT Work Gmail event trigger then performs the AI work and sends the finished post to your already-connected Metricool account.</p>
+                <p>Your hosting cron controls the trigger time. At that minute this site sends your structured prompt through authenticated Gmail SMTP. ChatGPT Work creates the content, then sends it to Metricool for publication as soon as it is ready.</p>
             </div>
             <form method="post">
                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
@@ -156,9 +156,6 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
                         <label>Send prompt at
                             <input type="time" name="trigger_time" required value="<?= e($edit['trigger_time'] ?? '08:00') ?>">
                         </label>
-                        <label>Metricool publish time
-                            <input type="time" name="publish_time" required value="<?= e($edit['publish_time'] ?? '10:00') ?>">
-                        </label>
                     </div>
 
                     <fieldset>
@@ -181,7 +178,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
                 <div class="eyebrow">One-time ChatGPT setup</div>
                 <h2>Work trigger instruction</h2>
                 <p>Create a Gmail event trigger in ChatGPT Work for new incoming emails whose subject starts with the automation tag. Use an instruction like this:</p>
-                <pre>When a new Gmail message has a subject starting with [<?= e($config['message_tag']) ?>], read the email body and execute the PROMPT completely. Create the required Instagram content and media, then use my connected Metricool plugin to schedule it for PUBLISH_AT. Do not create a ChatGPT time-based schedule. Ignore messages marked SOURCE: TEST.</pre>
+                <pre>When a new Gmail message has a subject starting with [<?= e($config['message_tag']) ?>], read the email body and execute the PROMPT completely. Create the required Instagram content and media, then publish it as soon as it is ready using my connected Metricool plugin. Do not create a ChatGPT time-based schedule. If Metricool requires a future publication time, use the earliest valid time with autoPublish enabled. Ignore messages marked SOURCE: TEST.</pre>
                 <p class="muted">After this one-time setup, the website controls timing. You do not need to open this chat for each post.</p>
             </div>
         </section>
@@ -209,7 +206,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
                                 <p><?= e(app_excerpt($schedule['prompt'], 180)) ?></p>
                                 <div class="meta">
                                     <span>Trigger <?= e($schedule['trigger_time']) ?></span>
-                                    <span>Publish <?= e($schedule['publish_time']) ?></span>
+                                    <span>Publish: immediately after creation</span>
                                     <span><?= e(implode(' · ', array_map(fn($d) => $dayNames[$d], schedule_days($schedule['weekdays'])))) ?></span>
                                 </div>
                             </div>
