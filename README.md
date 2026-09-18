@@ -16,7 +16,7 @@ Connected Metricool plugin
 Instagram scheduled/published by Metricool
 ~~~
 
-This project does **not** use ChatGPT's time-based scheduler and does **not** call the OpenAI API. Your own hosting cron decides when the prompt email is sent.
+This project does **not** use ChatGPT's time-based scheduler and does **not** call the OpenAI API. Your own hosting cron decides when the prompt email is sent. All website schedule times are forced to Mumbai / India Standard Time (IANA timezone `Asia/Kolkata`).
 
 ## Features
 
@@ -164,7 +164,7 @@ If your host only supports URL cron jobs:
 https://YOUR_DOMAIN/social-scheduler/cron.php?key=YOUR_CRON_SECRET
 ~~~
 
-Run it every minute and keep the secret private.
+Run it every minute and keep the secret private. The scheduler never sends before the selected IST time. If Hostinger calls the cron late, any missed due job is caught up later the same day instead of being silently skipped.
 
 ## Immediate publish behavior
 

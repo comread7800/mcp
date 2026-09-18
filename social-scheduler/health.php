@@ -5,10 +5,13 @@ header('Content-Type: application/json; charset=utf-8');
 try {
     $config = app_config();
     app_db();
+    $lastSchedulerCheck = with_state(fn(array $state) => $state['meta']['last_scheduler_check_at'] ?? null);
     echo json_encode([
         'ok' => true,
         'service' => 'prompt-bridge',
-        'timezone' => $config['timezone'],
+        'timezone' => 'Asia/Kolkata',
+        'timezoneLabel' => 'Mumbai / IST',
+        'lastSchedulerCheckAt' => $lastSchedulerCheck,
         'emailConfigured' => filter_var($config['mail_to'], FILTER_VALIDATE_EMAIL) !== false
             && filter_var($config['smtp_username'], FILTER_VALIDATE_EMAIL) !== false
             && $config['smtp_app_password'] !== '',
