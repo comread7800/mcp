@@ -29,7 +29,7 @@ function app_config(): array
     $config['smtp_port'] = (int)($config['smtp_port'] ?? 587);
     $config['smtp_username'] = trim((string)($config['smtp_username'] ?? ''));
     $config['smtp_app_password'] = preg_replace('/\s+/', '', (string)($config['smtp_app_password'] ?? '')) ?? '';
-    $config['cron_secret'] = (string)($config['cron_secret'] ?? '');
+    $config['cron_secret'] = trim((string)($config['cron_secret'] ?? ''));
     $config['message_tag'] = trim((string)($config['message_tag'] ?? 'SOCIAL_AUTOMATION')) ?: 'SOCIAL_AUTOMATION';
     $config['storage_path'] = (string)($config['storage_path'] ?? (__DIR__ . '/storage'));
 
