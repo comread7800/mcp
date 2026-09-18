@@ -22,7 +22,7 @@ This project does **not** use ChatGPT's time-based scheduler and does **not** ca
 
 - Password-protected dashboard
 - Daily/weekly prompt schedules
-- Separate trigger time and Metricool publish time
+- Website trigger time; publish immediately after AI content creation
 - Authenticated Gmail SMTP delivery
 - Stable [SOCIAL_AUTOMATION] subject/body tag for ChatGPT Work
 - Run now, edit, pause/enable and delete
@@ -135,13 +135,14 @@ When a new Gmail message has a subject starting with [SOCIAL_AUTOMATION]:
 
 If the email body contains SOURCE: TEST, ignore it and take no action.
 
-Read PUBLISH_AT and PROMPT from the email body.
+Read PROMPT from the email body.
 Execute the PROMPT completely.
 Research current information when required.
 Create the complete Instagram caption and required visual/media.
-Then use my connected Metricool plugin to schedule the finished Instagram post for exactly PUBLISH_AT.
+Then publish the finished Instagram post as soon as it is ready using my connected Metricool plugin.
 
-Do not create or use a ChatGPT time-based schedule. The website already controls the trigger time.
+Do not create or use a ChatGPT time-based schedule. The website already controls when the job starts.
+If Metricool only exposes scheduled publishing, use the earliest valid publication time (immediate/next minute) with autoPublish enabled.
 
 If Metricool succeeds, return the planner link/status.
 If a genuinely required input is missing, report the exact blocker instead of inventing it.
@@ -165,16 +166,13 @@ https://YOUR_DOMAIN/social-scheduler/cron.php?key=YOUR_CRON_SECRET
 
 Run it every minute and keep the secret private.
 
-## Publish-time behavior
+## Immediate publish behavior
 
 Example:
 
 - Trigger: 08:00
-- Publish in Metricool: 10:00
 
-At 08:00 Prompt Bridge sends the structured email. ChatGPT Work reacts to that incoming email, creates the post, and schedules it in Metricool for 10:00.
-
-If publish time is earlier than or equal to trigger time, Prompt Bridge uses the next day. Example: trigger 20:00, publish 09:00 means tomorrow at 09:00.
+At 08:00 Prompt Bridge sends the structured email. ChatGPT Work reacts to that email, creates the post and media, then hands it to Metricool for publication as soon as the content is ready. There is no separate publish-time field in Prompt Bridge.
 
 ## Security
 
