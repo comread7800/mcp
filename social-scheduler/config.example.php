@@ -18,6 +18,7 @@ return [
     'mail_from' => 'your-personal-gmail@gmail.com',
     'mail_from_name' => 'Prompt Bridge',
 
+    // URL-safe only: letters, numbers, hyphen and underscore. Avoid +, &, #, %, = and spaces.
     'cron_secret' => 'CHANGE_TO_A_LONG_RANDOM_SECRET',
     'message_tag' => 'SOCIAL_AUTOMATION',
     'storage_path' => __DIR__ . '/storage',
