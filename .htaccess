@@ -1,7 +1,0 @@
-Options -Indexes
-
-<FilesMatch "^(config\.php|config\.example\.php|app\.php)$">
-    Require all denied
-</FilesMatch>
-
-RedirectMatch 403 ^/storage(?:/|$)
