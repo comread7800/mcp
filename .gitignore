@@ -1,5 +1,4 @@
 config.php
-storage/*.sqlite
-storage/*.sqlite-*
+storage/*.json
 storage/*.log
 .DS_Store
