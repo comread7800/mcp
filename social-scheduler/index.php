@@ -80,6 +80,7 @@ if ($loggedIn && isset($_GET['edit'])) {
 }
 $selectedDays = $edit ? schedule_days($edit['weekdays']) : [1,2,3,4,5,6,7];
 $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
+$lastSchedulerCheck = $loggedIn ? with_state(fn(array $state) => $state['meta']['last_scheduler_check_at'] ?? null) : null;
 ?>
 <!doctype html>
 <html lang="en">
@@ -124,8 +125,9 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
         <?php if ($notice): ?><div class="alert success"><?= e($notice) ?></div><?php endif; ?>
 
         <section class="grid stats">
-            <div class="card stat"><span>Timezone</span><strong><?= e($config['timezone']) ?></strong></div>
+            <div class="card stat"><span>Timezone</span><strong>Mumbai / IST</strong><small>Asia/Kolkata</small></div>
             <div class="card stat"><span>Active schedules</span><strong><?= count(array_filter(all_schedules(), fn($s) => (int)$s['enabled'] === 1)) ?></strong></div>
+            <div class="card stat"><span>Scheduler heartbeat</span><strong><?= $lastSchedulerCheck ? e((new DateTimeImmutable($lastSchedulerCheck))->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M, H:i:s')) : 'Not seen yet' ?></strong><small><?= $lastSchedulerCheck ? 'IST' : 'Cron has not called cron.php' ?></small></div>
             <div class="card stat"><span>Trigger transport</span><strong>Email</strong></div>
             <div class="card stat"><span>Publisher</span><strong>Metricool</strong></div>
         </section>
@@ -134,7 +136,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
             <div>
                 <div class="eyebrow">Important</div>
                 <h2>This site does not use ChatGPT's time scheduler.</h2>
-                <p>Your hosting cron controls the trigger time. At that minute this site sends your structured prompt through authenticated Gmail SMTP. ChatGPT Work creates the content, then sends it to Metricool for publication as soon as it is ready.</p>
+                <p>All schedule times are locked to Mumbai / India Standard Time (IST). Your hosting cron calls the scheduler; jobs never run before the selected time, and if a cron tick is late the scheduler catches up the missed job the same day instead of dropping it.</p>
             </div>
             <form method="post">
                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
