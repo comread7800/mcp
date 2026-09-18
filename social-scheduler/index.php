@@ -46,11 +46,12 @@ if ($configError === null) {
                 $notice = 'Schedule deleted.';
             } elseif ($action === 'run') {
                 run_schedule_now((int)($_POST['id'] ?? 0));
-                $notice = 'Prompt sent to Slack. ChatGPT Work should receive it through the Slack trigger.';
-            } elseif ($action === 'test_slack') {
-                slack_send('[' . app_config()['message_tag'] . "]\nSOURCE: TEST\nPrompt Bridge Slack connection test. No content should be scheduled for this test message.");
-                add_log(null, null, 'sent', 'Slack connection test sent successfully.');
-                $notice = 'Slack test sent successfully.';
+                $notice = 'Prompt email sent. ChatGPT Work should receive it through the Gmail event trigger.';
+            } elseif ($action === 'test_email') {
+                $tag = app_config()['message_tag'];
+                email_send('[' . $tag . '] Prompt Bridge TEST', '[' . $tag . "]\nSOURCE: TEST\nPrompt Bridge email connection test. No content should be scheduled for this test message.");
+                add_log(null, null, 'sent', 'Email connection test handed to the mail server successfully.');
+                $notice = 'Test email sent successfully.';
             }
         } catch (Throwable $e) {
             $error = $e->getMessage();
@@ -78,7 +79,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
 <div class="shell">
     <header class="topbar">
         <div>
-            <div class="eyebrow">Own scheduler → Slack → ChatGPT Work → Metricool</div>
+            <div class="eyebrow">Own scheduler → Email → ChatGPT Work → Metricool</div>
             <h1><?= e($config['app_name']) ?></h1>
         </div>
         <?php if ($loggedIn): ?>
@@ -90,7 +91,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
         <section class="card danger">
             <h2>Setup required</h2>
             <p><?= e($configError) ?></p>
-            <p>Copy <code>config.example.php</code> to <code>config.php</code>, fill in the password, Slack webhook and cron secret, then reload.</p>
+            <p>Copy <code>config.example.php</code> to <code>config.php</code>, fill in the password, email settings and cron secret, then reload.</p>
         </section>
     <?php elseif (!$loggedIn): ?>
         <section class="card auth-card">
@@ -111,7 +112,7 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
         <section class="grid stats">
             <div class="card stat"><span>Timezone</span><strong><?= e($config['timezone']) ?></strong></div>
             <div class="card stat"><span>Active schedules</span><strong><?= count(array_filter(all_schedules(), fn($s) => (int)$s['enabled'] === 1)) ?></strong></div>
-            <div class="card stat"><span>Trigger transport</span><strong>Slack</strong></div>
+            <div class="card stat"><span>Trigger transport</span><strong>Email</strong></div>
             <div class="card stat"><span>Publisher</span><strong>Metricool</strong></div>
         </section>
 
@@ -119,12 +120,12 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
             <div>
                 <div class="eyebrow">Important</div>
                 <h2>This site does not use ChatGPT's time scheduler.</h2>
-                <p>Your hosting cron controls the trigger time. At that minute this site posts your prompt into Slack. A ChatGPT Work Slack event trigger then performs the AI work and sends the finished post to your already-connected Metricool account.</p>
+                <p>Your hosting cron controls the trigger time. At that minute this site sends your structured prompt by email. A ChatGPT Work Gmail event trigger then performs the AI work and sends the finished post to your already-connected Metricool account.</p>
             </div>
             <form method="post">
                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-                <input type="hidden" name="action" value="test_slack">
-                <button class="button secondary" type="submit">Test Slack</button>
+                <input type="hidden" name="action" value="test_email">
+                <button class="button secondary" type="submit">Test Email</button>
             </form>
         </section>
 
@@ -179,8 +180,8 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
             <div class="card how-card">
                 <div class="eyebrow">One-time ChatGPT setup</div>
                 <h2>Work trigger instruction</h2>
-                <p>Create a Slack event trigger in ChatGPT Work for the same channel as your webhook. Use an instruction like this:</p>
-                <pre>When a new Slack message starts with [<?= e($config['message_tag']) ?>], execute the PROMPT completely. Create the required Instagram content and media, then use my connected Metricool plugin to schedule it for PUBLISH_AT. Do not create a ChatGPT time-based schedule. Ignore messages marked SOURCE: TEST.</pre>
+                <p>Create a Gmail event trigger in ChatGPT Work for new incoming emails whose subject starts with the automation tag. Use an instruction like this:</p>
+                <pre>When a new Gmail message has a subject starting with [<?= e($config['message_tag']) ?>], read the email body and execute the PROMPT completely. Create the required Instagram content and media, then use my connected Metricool plugin to schedule it for PUBLISH_AT. Do not create a ChatGPT time-based schedule. Ignore messages marked SOURCE: TEST.</pre>
                 <p class="muted">After this one-time setup, the website controls timing. You do not need to open this chat for each post.</p>
             </div>
         </section>
