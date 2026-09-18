@@ -7,6 +7,14 @@ import { Client } from 'ssh2';
 import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import * as z from 'zod/v4';
+import {
+  generatedDir,
+  instagramStatus,
+  publishInstagramImage,
+  runInstagramPost,
+  setInstagramSchedule,
+  startInstagramScheduler
+} from './instagram.js';
 
 const posix = path.posix;
 
@@ -420,6 +428,73 @@ function buildMcpServer() {
     }
   });
 
+
+  server.registerTool('instagram_status', {
+    description: 'Show Instagram/OpenAI configuration, posting schedule and recent runs without exposing secrets.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true }
+  }, async () => {
+    try {
+      return textResult(await instagramStatus());
+    } catch (error) {
+      return toolError(error);
+    }
+  });
+
+  server.registerTool('instagram_set_schedule', {
+    description: 'Configure the single-account Instagram auto-post schedule. Times use 24-hour HH:MM in the supplied IANA timezone. dryRun=true generates previews only; set dryRun=false to allow scheduled publishing.',
+    inputSchema: z.object({
+      timezone: z.string().optional(),
+      times: z.array(z.string()).max(12).optional(),
+      prompt: z.string().min(1).max(4000).optional(),
+      enabled: z.boolean().optional(),
+      dryRun: z.boolean().optional()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+  }, async (input) => {
+    try {
+      return textResult(await setInstagramSchedule(input));
+    } catch (error) {
+      return toolError(error);
+    }
+  });
+
+  server.registerTool('instagram_preview_post', {
+    description: 'Generate a caption and square image with OpenAI but do not publish to Instagram.',
+    inputSchema: z.object({ prompt: z.string().min(1).max(4000).optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async ({ prompt }) => {
+    try {
+      return textResult(await runInstagramPost({ prompt, publish: false, source: 'mcp-preview' }));
+    } catch (error) {
+      return toolError(error);
+    }
+  });
+
+  server.registerTool('instagram_generate_and_publish', {
+    description: 'Generate a caption and image with OpenAI and publish it to the configured Instagram account. Requires confirm=true and dryRun=false.',
+    inputSchema: z.object({ prompt: z.string().min(1).max(4000).optional(), confirm: z.literal(true) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  }, async ({ prompt }) => {
+    try {
+      return textResult(await runInstagramPost({ prompt, publish: true, source: 'mcp-publish' }));
+    } catch (error) {
+      return toolError(error);
+    }
+  });
+
+  server.registerTool('instagram_publish_image', {
+    description: 'Publish an existing publicly reachable image URL and caption to the configured Instagram account. Requires confirm=true.',
+    inputSchema: z.object({ imageUrl: z.string().url(), caption: z.string().max(2200).default(''), confirm: z.literal(true) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  }, async ({ imageUrl, caption }) => {
+    try {
+      return textResult(await publishInstagramImage({ imageUrl, caption }));
+    } catch (error) {
+      return toolError(error);
+    }
+  });
+
   return server;
 }
 
@@ -449,6 +524,7 @@ const app = express();
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' }));
+app.use('/generated', express.static(generatedDir, { index: false, maxAge: '7d' }));
 
 app.get('/healthz', (_req, res) => {
   res.json({ ok: true, service: 'hostinger-files-mcp', sshConfigured: sshConfigured(), authMode: config.authMode });
@@ -462,6 +538,8 @@ app.use((error, _req, res, _next) => {
   console.error(error);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+startInstagramScheduler();
 
 app.listen(config.port, '0.0.0.0', () => {
   console.error(`Hostinger Files MCP listening on port ${config.port}`);
