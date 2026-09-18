@@ -1,0 +1,484 @@
+<?php
+declare(strict_types=1);
+
+function app_config(): array
+{
+    static $config = null;
+    if ($config !== null) {
+        return $config;
+    }
+
+    $path = __DIR__ . '/config.php';
+    if (!is_file($path)) {
+        throw new RuntimeException('config.php is missing. Copy config.example.php to config.php and fill in your settings.');
+    }
+
+    $loaded = require $path;
+    if (!is_array($loaded)) {
+        throw new RuntimeException('config.php must return an array.');
+    }
+
+    $config = $loaded;
+    $config['app_name'] = (string)($config['app_name'] ?? 'Prompt Bridge');
+    $config['timezone'] = (string)($config['timezone'] ?? 'Asia/Kolkata');
+    $config['admin_password'] = (string)($config['admin_password'] ?? '');
+    $config['slack_webhook_url'] = (string)($config['slack_webhook_url'] ?? '');
+    $config['cron_secret'] = (string)($config['cron_secret'] ?? '');
+    $config['message_tag'] = trim((string)($config['message_tag'] ?? 'SOCIAL_AUTOMATION')) ?: 'SOCIAL_AUTOMATION';
+    $config['storage_path'] = (string)($config['storage_path'] ?? (__DIR__ . '/storage'));
+
+    try {
+        new DateTimeZone($config['timezone']);
+    } catch (Throwable) {
+        throw new RuntimeException('Invalid timezone in config.php: ' . $config['timezone']);
+    }
+
+    return $config;
+}
+
+function storage_file(): string
+{
+    $storage = rtrim(app_config()['storage_path'], DIRECTORY_SEPARATOR);
+    if (!is_dir($storage) && !mkdir($storage, 0700, true) && !is_dir($storage)) {
+        throw new RuntimeException('Unable to create storage directory.');
+    }
+    return $storage . DIRECTORY_SEPARATOR . 'prompt-bridge.json';
+}
+
+function empty_state(): array
+{
+    return [
+        'nextScheduleId' => 1,
+        'nextLogId' => 1,
+        'schedules' => [],
+        'logs' => [],
+    ];
+}
+
+function with_state(callable $callback, bool $write = false): mixed
+{
+    $path = storage_file();
+    $handle = fopen($path, 'c+');
+    if ($handle === false) {
+        throw new RuntimeException('Unable to open storage file.');
+    }
+
+    $lock = $write ? LOCK_EX : LOCK_SH;
+    if (!flock($handle, $lock)) {
+        fclose($handle);
+        throw new RuntimeException('Unable to lock storage file.');
+    }
+
+    try {
+        rewind($handle);
+        $raw = stream_get_contents($handle);
+        $state = $raw !== false && trim($raw) !== '' ? json_decode($raw, true) : empty_state();
+        if (!is_array($state)) {
+            throw new RuntimeException('Storage file is invalid JSON.');
+        }
+        $state = array_merge(empty_state(), $state);
+        $state['schedules'] = is_array($state['schedules']) ? $state['schedules'] : [];
+        $state['logs'] = is_array($state['logs']) ? $state['logs'] : [];
+
+        $result = $callback($state);
+
+        if ($write) {
+            $encoded = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+            rewind($handle);
+            ftruncate($handle, 0);
+            if (fwrite($handle, $encoded) === false) {
+                throw new RuntimeException('Unable to write storage file.');
+            }
+            fflush($handle);
+            @chmod($path, 0600);
+        }
+
+        return $result;
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
+function app_db(): bool
+{
+    storage_file();
+    return true;
+}
+
+function app_now(): DateTimeImmutable
+{
+    return new DateTimeImmutable('now', new DateTimeZone(app_config()['timezone']));
+}
+
+function app_start_session(): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_name('prompt_bridge_session');
+        session_start([
+            'cookie_httponly' => true,
+            'cookie_samesite' => 'Lax',
+            'use_strict_mode' => true,
+        ]);
+    }
+}
+
+function app_is_logged_in(): bool
+{
+    app_start_session();
+    return !empty($_SESSION['logged_in']);
+}
+
+function app_login(string $password): bool
+{
+    app_start_session();
+    $expected = app_config()['admin_password'];
+    if ($expected === '' || $expected === 'CHANGE_ME_NOW') {
+        return false;
+    }
+    if (!hash_equals($expected, $password)) {
+        return false;
+    }
+    session_regenerate_id(true);
+    $_SESSION['logged_in'] = true;
+    return true;
+}
+
+function app_logout(): void
+{
+    app_start_session();
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+    }
+    session_destroy();
+}
+
+function csrf_token(): string
+{
+    app_start_session();
+    if (empty($_SESSION['csrf'])) {
+        $_SESSION['csrf'] = bin2hex(random_bytes(24));
+    }
+    return $_SESSION['csrf'];
+}
+
+function csrf_verify(?string $token): void
+{
+    if (!$token || !hash_equals(csrf_token(), $token)) {
+        throw new RuntimeException('Invalid form token. Refresh the page and try again.');
+    }
+}
+
+function e(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function valid_hhmm(string $value): bool
+{
+    return (bool)preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $value);
+}
+
+function app_excerpt(string $text, int $max = 180): string
+{
+    if (function_exists('mb_strimwidth')) {
+        return mb_strimwidth($text, 0, $max, '…', 'UTF-8');
+    }
+    if (strlen($text) <= $max) {
+        return $text;
+    }
+    return substr($text, 0, max(1, $max - 3)) . '...';
+}
+
+function normalize_weekdays(array $input): string
+{
+    $days = [];
+    foreach ($input as $value) {
+        $day = (int)$value;
+        if ($day >= 1 && $day <= 7) {
+            $days[$day] = $day;
+        }
+    }
+    if (!$days) {
+        throw new RuntimeException('Select at least one day.');
+    }
+    ksort($days);
+    return implode(',', $days);
+}
+
+function schedule_days(string $value): array
+{
+    $out = [];
+    foreach (explode(',', $value) as $part) {
+        $day = (int)$part;
+        if ($day >= 1 && $day <= 7) {
+            $out[] = $day;
+        }
+    }
+    return array_values(array_unique($out));
+}
+
+function all_schedules(): array
+{
+    $schedules = with_state(fn(array $state) => $state['schedules']);
+    usort($schedules, static function (array $a, array $b): int {
+        $enabled = ((int)$b['enabled']) <=> ((int)$a['enabled']);
+        if ($enabled !== 0) return $enabled;
+        $time = strcmp((string)$a['trigger_time'], (string)$b['trigger_time']);
+        if ($time !== 0) return $time;
+        return ((int)$b['id']) <=> ((int)$a['id']);
+    });
+    return $schedules;
+}
+
+function get_schedule(int $id): ?array
+{
+    return with_state(static function (array $state) use ($id): ?array {
+        foreach ($state['schedules'] as $schedule) {
+            if ((int)$schedule['id'] === $id) return $schedule;
+        }
+        return null;
+    });
+}
+
+function save_schedule(array $data, ?int $id = null): int
+{
+    $name = trim((string)($data['name'] ?? ''));
+    $prompt = trim((string)($data['prompt'] ?? ''));
+    $trigger = trim((string)($data['trigger_time'] ?? ''));
+    $publish = trim((string)($data['publish_time'] ?? ''));
+    $weekdays = normalize_weekdays((array)($data['weekdays'] ?? []));
+
+    if ($name === '') throw new RuntimeException('Schedule name is required.');
+    if ($prompt === '') throw new RuntimeException('Prompt is required.');
+    if (!valid_hhmm($trigger) || !valid_hhmm($publish)) throw new RuntimeException('Trigger and publish times must use HH:MM.');
+
+    $now = app_now()->format(DateTimeInterface::ATOM);
+
+    return with_state(static function (array &$state) use ($id, $name, $prompt, $trigger, $publish, $weekdays, $now): int {
+        if ($id !== null) {
+            foreach ($state['schedules'] as &$schedule) {
+                if ((int)$schedule['id'] === $id) {
+                    $schedule['name'] = $name;
+                    $schedule['prompt'] = $prompt;
+                    $schedule['trigger_time'] = $trigger;
+                    $schedule['publish_time'] = $publish;
+                    $schedule['weekdays'] = $weekdays;
+                    $schedule['updated_at'] = $now;
+                    return $id;
+                }
+            }
+            throw new RuntimeException('Schedule not found.');
+        }
+
+        $newId = max(1, (int)$state['nextScheduleId']);
+        $state['nextScheduleId'] = $newId + 1;
+        $state['schedules'][] = [
+            'id' => $newId,
+            'name' => $name,
+            'prompt' => $prompt,
+            'trigger_time' => $trigger,
+            'publish_time' => $publish,
+            'weekdays' => $weekdays,
+            'enabled' => 1,
+            'last_run_key' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+        return $newId;
+    }, true);
+}
+
+function toggle_schedule(int $id): void
+{
+    $now = app_now()->format(DateTimeInterface::ATOM);
+    with_state(static function (array &$state) use ($id, $now): void {
+        foreach ($state['schedules'] as &$schedule) {
+            if ((int)$schedule['id'] === $id) {
+                $schedule['enabled'] = (int)$schedule['enabled'] === 1 ? 0 : 1;
+                $schedule['updated_at'] = $now;
+                return;
+            }
+        }
+        throw new RuntimeException('Schedule not found.');
+    }, true);
+}
+
+function delete_schedule(int $id): void
+{
+    with_state(static function (array &$state) use ($id): void {
+        $before = count($state['schedules']);
+        $state['schedules'] = array_values(array_filter($state['schedules'], fn(array $s) => (int)$s['id'] !== $id));
+        if (count($state['schedules']) === $before) throw new RuntimeException('Schedule not found.');
+        $state['logs'] = array_values(array_filter($state['logs'], fn(array $l) => (int)($l['schedule_id'] ?? 0) !== $id));
+    }, true);
+}
+
+function recent_logs(int $limit = 40): array
+{
+    $limit = max(1, min(100, $limit));
+    return with_state(static function (array $state) use ($limit): array {
+        $names = [];
+        foreach ($state['schedules'] as $schedule) $names[(int)$schedule['id']] = $schedule['name'];
+        $logs = array_reverse($state['logs']);
+        $logs = array_slice($logs, 0, $limit);
+        foreach ($logs as &$log) {
+            $sid = (int)($log['schedule_id'] ?? 0);
+            $log['schedule_name'] = $sid && isset($names[$sid]) ? $names[$sid] : 'System';
+        }
+        return $logs;
+    });
+}
+
+function add_log(?int $scheduleId, ?string $runKey, string $status, string $message): void
+{
+    $createdAt = app_now()->format(DateTimeInterface::ATOM);
+    with_state(static function (array &$state) use ($scheduleId, $runKey, $status, $message, $createdAt): void {
+        $id = max(1, (int)$state['nextLogId']);
+        $state['nextLogId'] = $id + 1;
+        $state['logs'][] = [
+            'id' => $id,
+            'schedule_id' => $scheduleId,
+            'run_key' => $runKey,
+            'status' => $status,
+            'message' => $message,
+            'created_at' => $createdAt,
+        ];
+        if (count($state['logs']) > 250) {
+            $state['logs'] = array_slice($state['logs'], -250);
+        }
+    }, true);
+}
+
+function publish_at_for(array $schedule, DateTimeImmutable $triggeredAt): DateTimeImmutable
+{
+    [$hour, $minute] = array_map('intval', explode(':', $schedule['publish_time']));
+    $target = $triggeredAt->setTime($hour, $minute, 0);
+    if ($target <= $triggeredAt) $target = $target->modify('+1 day');
+    return $target;
+}
+
+function build_slack_message(array $schedule, DateTimeImmutable $triggeredAt, string $source): string
+{
+    $config = app_config();
+    $publishAt = publish_at_for($schedule, $triggeredAt);
+    $tag = $config['message_tag'];
+
+    return '[' . $tag . "]\n"
+        . 'SOURCE: ' . strtoupper($source) . "\n"
+        . 'SCHEDULE_ID: ' . $schedule['id'] . "\n"
+        . 'SCHEDULE_NAME: ' . $schedule['name'] . "\n"
+        . 'TRIGGERED_AT: ' . $triggeredAt->format('Y-m-d H:i:s T') . "\n"
+        . 'PUBLISH_AT: ' . $publishAt->format('Y-m-d H:i:s T') . "\n\n"
+        . "PROMPT:\n" . trim($schedule['prompt']) . "\n\n"
+        . "EXECUTION RULES:\n"
+        . "1. Execute the prompt fully; research current information when the prompt requires it.\n"
+        . "2. Prepare the final Instagram caption and the required visual/media.\n"
+        . "3. Use the connected Metricool plugin to schedule the finished Instagram post for exactly PUBLISH_AT.\n"
+        . "4. Do not create or use a ChatGPT time-based schedule for this task; this website already handled the trigger time.\n"
+        . "5. Mark AI-generated Instagram content correctly when the Metricool tool exposes that option.\n"
+        . "6. If scheduling succeeds, return the Metricool planner link/status. If a required input is genuinely missing, report the exact blocker instead of inventing it.";
+}
+
+function slack_send(string $text): array
+{
+    $url = trim(app_config()['slack_webhook_url']);
+    if ($url === '' || str_contains($url, 'REPLACE/ME')) throw new RuntimeException('Slack webhook is not configured in config.php.');
+    if (!str_starts_with($url, 'https://hooks.slack.com/')) throw new RuntimeException('Slack webhook URL must use https://hooks.slack.com/.');
+
+    $payload = json_encode(['text' => $text], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json; charset=utf-8'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => 8,
+        ]);
+        $body = curl_exec($ch);
+        $error = curl_error($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        if ($body === false) throw new RuntimeException('Slack request failed: ' . $error);
+    } else {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => "Content-Type: application/json; charset=utf-8\r\n",
+                'content' => $payload,
+                'timeout' => 15,
+                'ignore_errors' => true,
+            ],
+        ]);
+        $body = @file_get_contents($url, false, $context);
+        $status = 0;
+        foreach ($http_response_header ?? [] as $line) {
+            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) $status = (int)$m[1];
+        }
+        if ($body === false) throw new RuntimeException('Slack request failed. Enable PHP cURL for clearer network errors.');
+    }
+
+    if ($status < 200 || $status >= 300 || trim((string)$body) !== 'ok') {
+        throw new RuntimeException('Slack returned HTTP ' . $status . ': ' . trim((string)$body));
+    }
+    return ['ok' => true, 'status' => $status, 'body' => trim((string)$body)];
+}
+
+function run_schedule(array $schedule, DateTimeImmutable $triggeredAt, string $source, ?string $runKey = null): array
+{
+    $message = build_slack_message($schedule, $triggeredAt, $source);
+    try {
+        $result = slack_send($message);
+        add_log((int)$schedule['id'], $runKey, 'sent', 'Prompt sent to Slack successfully.');
+        return ['ok' => true, 'message' => $message, 'slack' => $result];
+    } catch (Throwable $e) {
+        add_log((int)$schedule['id'], $runKey, 'failed', $e->getMessage());
+        throw $e;
+    }
+}
+
+function run_schedule_now(int $id): array
+{
+    $schedule = get_schedule($id);
+    if (!$schedule) throw new RuntimeException('Schedule not found.');
+    return run_schedule($schedule, app_now(), 'manual');
+}
+
+function process_due_schedules(): array
+{
+    $now = app_now();
+    $currentTime = $now->format('H:i');
+    $weekday = (int)$now->format('N');
+    $runKey = $now->format('Y-m-d H:i');
+    $updatedAt = $now->format(DateTimeInterface::ATOM);
+
+    $due = with_state(static function (array &$state) use ($currentTime, $weekday, $runKey, $updatedAt): array {
+        $claimed = [];
+        foreach ($state['schedules'] as &$schedule) {
+            if ((int)$schedule['enabled'] !== 1) continue;
+            if ($schedule['trigger_time'] !== $currentTime) continue;
+            if (!in_array($weekday, schedule_days($schedule['weekdays']), true)) continue;
+            if (($schedule['last_run_key'] ?? null) === $runKey) continue;
+            $schedule['last_run_key'] = $runKey;
+            $schedule['updated_at'] = $updatedAt;
+            $claimed[] = $schedule;
+        }
+        return $claimed;
+    }, true);
+
+    $results = [];
+    foreach ($due as $schedule) {
+        try {
+            run_schedule($schedule, $now, 'scheduled', $runKey);
+            $results[] = ['id' => (int)$schedule['id'], 'status' => 'sent'];
+        } catch (Throwable $e) {
+            $results[] = ['id' => (int)$schedule['id'], 'status' => 'failed', 'error' => $e->getMessage()];
+        }
+    }
+    return $results;
+}
