@@ -15,6 +15,9 @@ The MCP server does **not** need your Hostinger password in source code. It uses
 - Move/rename files and directories
 - Delete files or empty directories with explicit confirmation
 - Run one pre-configured deploy command
+- Generate Instagram captions and images with OpenAI
+- Preview or publish a post to one configured Instagram account
+- Run a persistent time-based Instagram posting schedule
 
 ## Safety model
 
@@ -129,3 +132,78 @@ Authorization: Bearer <MCP_ACCESS_TOKEN>
 Expose the MCP service only over HTTPS. Keep bearer-token authentication enabled, use a dedicated Hostinger SSH key, and set `HOSTINGER_ROOT` to the specific site's `public_html` directory rather than the entire hosting account.
 
 For live PHP sites, keep backups enabled until the workflow is proven. The server automatically creates timestamped `.mcp-backup-*` copies before file replacements unless `backup=false` is explicitly requested.
+
+## Instagram auto-poster (single account)
+
+This repository also supports a private, single-owner Instagram workflow. It is intentionally not a multi-user SaaS login system.
+
+### How the automation works
+
+The reliable unattended flow is:
+
+```text
+schedule -> OpenAI API -> caption + image -> public /generated URL -> Instagram API -> publish
+```
+
+An MCP server cannot independently push a new message into an already-open ChatGPT conversation. MCP tools are normally called by the MCP host. For scheduled posting, this server therefore runs its own scheduler and calls the OpenAI API directly. You can still connect the same MCP to ChatGPT/Claude and use its Instagram tools manually.
+
+### Instagram requirement
+
+The configured Instagram account must be an Instagram **Professional** account (Business or Creator) with publishing permissions. A consumer Personal account is not supported by Meta's official content-publishing API. If this is your own personal-use account, convert that account to Creator or Business first.
+
+Create a Meta developer app, add the Instagram product, and configure Business Login with the redirect URI `https://YOUR-MCP-DOMAIN/instagram/callback`. Then configure:
+
+```env
+INSTAGRAM_APP_ID=...
+INSTAGRAM_APP_SECRET=...
+INSTAGRAM_API_VERSION=v26.0
+PUBLIC_BASE_URL=https://YOUR-MCP-DOMAIN
+```
+
+After deployment, call the MCP tool `instagram_connect_url`, open the returned URL in your browser, and log into the Instagram account you want to connect. The callback exchanges the authorization code for a long-lived token, saves the Instagram-scoped user ID and username, and keeps the token out of MCP responses.
+
+If you prefer manual setup, `INSTAGRAM_USER_ID` and `INSTAGRAM_ACCESS_TOKEN` remain available as a fallback.
+
+### OpenAI and public image configuration
+
+Scheduled generation uses the OpenAI API, which is billed separately from a ChatGPT subscription.
+
+```env
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5.6-luna
+OPENAI_IMAGE_MODEL=gpt-image-2
+PUBLIC_BASE_URL=https://your-mcp-domain.example
+DEFAULT_TIMEZONE=Asia/Kolkata
+```
+
+`PUBLIC_BASE_URL` must be an HTTPS URL reachable by Instagram. Generated JPEGs are exposed at random URLs under `/generated/` so Meta can fetch them during publishing.
+
+### Instagram MCP tools
+
+| Tool | Purpose |
+| --- | --- |
+| `instagram_connect_url` | Get a short-lived browser login URL for connecting the owner account |
+| `instagram_disconnect` | Clear the stored account and disable its schedule; requires `confirm=true` |
+| `instagram_status` | Check configuration, connected account, schedule, and recent runs without exposing secrets |
+| `instagram_set_schedule` | Set timezone, posting times, default prompt, enable/disable, and dry-run mode |
+| `instagram_preview_post` | Generate caption + image but do not publish |
+| `instagram_generate_and_publish` | Generate and publish one post; requires `confirm=true` |
+| `instagram_publish_image` | Publish an existing public image URL + caption; requires `confirm=true` |
+
+A safe first setup is:
+
+```json
+{
+  "timezone": "Asia/Kolkata",
+  "times": ["10:00", "19:00"],
+  "prompt": "Create one useful post about AI tools and web design for small business owners.",
+  "enabled": true,
+  "dryRun": true
+}
+```
+
+Run `instagram_preview_post` first. When the output is correct, change the schedule to `"dryRun": false`; scheduled jobs will then publish automatically.
+
+The scheduler checks every 30 seconds and deduplicates each configured time slot. The Node process must stay running continuously. If your hosting sleeps or stops Node processes, use a persistent Node host or configure your host to keep/restart the app.
+
+Generated state and media are stored under `.data/` by default and are excluded from Git.
