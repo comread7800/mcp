@@ -501,31 +501,60 @@ function run_schedule_now(int $id): array
 function process_due_schedules(): array
 {
     $now = app_now();
-    $currentTime = $now->format('H:i');
     $weekday = (int)$now->format('N');
-    $runKey = $now->format('Y-m-d H:i');
     $updatedAt = $now->format(DateTimeInterface::ATOM);
+    $graceSeconds = 10 * 60;
 
-    $due = with_state(static function (array &$state) use ($currentTime, $weekday, $runKey, $updatedAt): array {
+    $due = with_state(static function (array &$state) use ($now, $weekday, $updatedAt, $graceSeconds): array {
         $claimed = [];
         foreach ($state['schedules'] as &$schedule) {
             if ((int)$schedule['enabled'] !== 1) continue;
-            if ($schedule['trigger_time'] !== $currentTime) continue;
             if (!in_array($weekday, schedule_days($schedule['weekdays']), true)) continue;
+
+            [$hour, $minute] = array_map('intval', explode(':', (string)$schedule['trigger_time']));
+            $scheduledAt = $now->setTime($hour, $minute, 0);
+            $age = $now->getTimestamp() - $scheduledAt->getTimestamp();
+
+            // Allow a short catch-up window so a cron that runs a little late does not miss the job.
+            if ($age < 0 || $age > $graceSeconds) continue;
+
+            $runKey = $scheduledAt->format('Y-m-d H:i');
             if (($schedule['last_run_key'] ?? null) === $runKey) continue;
+
+            // Claim before delivery to prevent duplicate sends from overlapping cron invocations.
             $schedule['last_run_key'] = $runKey;
             $schedule['updated_at'] = $updatedAt;
-            $claimed[] = $schedule;
+            $claimed[] = [
+                'schedule' => $schedule,
+                'run_key' => $runKey,
+                'scheduled_at' => $scheduledAt->format(DateTimeInterface::ATOM),
+            ];
         }
         return $claimed;
     }, true);
 
     $results = [];
-    foreach ($due as $schedule) {
+    foreach ($due as $item) {
+        $schedule = $item['schedule'];
+        $runKey = $item['run_key'];
+        $scheduledAt = new DateTimeImmutable($item['scheduled_at']);
+
         try {
-            run_schedule($schedule, $now, 'scheduled', $runKey);
+            run_schedule($schedule, $scheduledAt, 'scheduled', $runKey);
             $results[] = ['id' => (int)$schedule['id'], 'status' => 'sent'];
         } catch (Throwable $e) {
+            // Release the claim so the next cron run inside the grace window can retry.
+            with_state(static function (array &$state) use ($schedule, $runKey, $updatedAt): void {
+                foreach ($state['schedules'] as &$stored) {
+                    if ((int)$stored['id'] !== (int)$schedule['id']) continue;
+                    if (($stored['last_run_key'] ?? null) === $runKey) {
+                        $stored['last_run_key'] = null;
+                        $stored['updated_at'] = $updatedAt;
+                    }
+                    break;
+                }
+            }, true);
+
             $results[] = ['id' => (int)$schedule['id'], 'status' => 'failed', 'error' => $e->getMessage()];
         }
     }
