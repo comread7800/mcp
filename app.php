@@ -168,6 +168,17 @@ function valid_hhmm(string $value): bool
     return (bool)preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $value);
 }
 
+function app_excerpt(string $text, int $max = 180): string
+{
+    if (function_exists('mb_strimwidth')) {
+        return mb_strimwidth($text, 0, $max, '…', 'UTF-8');
+    }
+    if (strlen($text) <= $max) {
+        return $text;
+    }
+    return substr($text, 0, max(1, $max - 3)) . '...';
+}
+
 function normalize_weekdays(array $input): string
 {
     $days = [];
