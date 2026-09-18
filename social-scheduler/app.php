@@ -22,7 +22,9 @@ function app_config(): array
     $config['app_name'] = (string)($config['app_name'] ?? 'Prompt Bridge');
     $config['timezone'] = (string)($config['timezone'] ?? 'Asia/Kolkata');
     $config['admin_password'] = (string)($config['admin_password'] ?? '');
-    $config['slack_webhook_url'] = (string)($config['slack_webhook_url'] ?? '');
+    $config['mail_to'] = trim((string)($config['mail_to'] ?? ''));
+    $config['mail_from'] = trim((string)($config['mail_from'] ?? ''));
+    $config['mail_from_name'] = trim((string)($config['mail_from_name'] ?? 'Prompt Bridge')) ?: 'Prompt Bridge';
     $config['cron_secret'] = (string)($config['cron_secret'] ?? '');
     $config['message_tag'] = trim((string)($config['message_tag'] ?? 'SOCIAL_AUTOMATION')) ?: 'SOCIAL_AUTOMATION';
     $config['storage_path'] = (string)($config['storage_path'] ?? (__DIR__ . '/storage'));
@@ -360,13 +362,14 @@ function publish_at_for(array $schedule, DateTimeImmutable $triggeredAt): DateTi
     return $target;
 }
 
-function build_slack_message(array $schedule, DateTimeImmutable $triggeredAt, string $source): string
+function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string $source): array
 {
     $config = app_config();
     $publishAt = publish_at_for($schedule, $triggeredAt);
     $tag = $config['message_tag'];
 
-    return '[' . $tag . "]\n"
+    $subject = '[' . $tag . '] ' . $schedule['name'];
+    $body = '[' . $tag . "]\n"
         . 'SOURCE: ' . strtoupper($source) . "\n"
         . 'SCHEDULE_ID: ' . $schedule['id'] . "\n"
         . 'SCHEDULE_NAME: ' . $schedule['name'] . "\n"
@@ -380,62 +383,62 @@ function build_slack_message(array $schedule, DateTimeImmutable $triggeredAt, st
         . "4. Do not create or use a ChatGPT time-based schedule for this task; this website already handled the trigger time.\n"
         . "5. Mark AI-generated Instagram content correctly when the Metricool tool exposes that option.\n"
         . "6. If scheduling succeeds, return the Metricool planner link/status. If a required input is genuinely missing, report the exact blocker instead of inventing it.";
+
+    return ['subject' => $subject, 'body' => $body];
 }
 
-function slack_send(string $text): array
+function clean_mail_header(string $value): string
 {
-    $url = trim(app_config()['slack_webhook_url']);
-    if ($url === '' || str_contains($url, 'REPLACE/ME')) throw new RuntimeException('Slack webhook is not configured in config.php.');
-    if (!str_starts_with($url, 'https://hooks.slack.com/')) throw new RuntimeException('Slack webhook URL must use https://hooks.slack.com/.');
+    return trim(str_replace(["\r", "\n"], '', $value));
+}
 
-    $payload = json_encode(['text' => $text], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+function email_send(string $subject, string $body): array
+{
+    $config = app_config();
+    $to = clean_mail_header($config['mail_to']);
+    $from = clean_mail_header($config['mail_from']);
+    $fromName = clean_mail_header($config['mail_from_name']);
 
-    if (function_exists('curl_init')) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $payload,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json; charset=utf-8'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_CONNECTTIMEOUT => 8,
-        ]);
-        $body = curl_exec($ch);
-        $error = curl_error($ch);
-        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
-        if ($body === false) throw new RuntimeException('Slack request failed: ' . $error);
-    } else {
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => "Content-Type: application/json; charset=utf-8\r\n",
-                'content' => $payload,
-                'timeout' => 15,
-                'ignore_errors' => true,
-            ],
-        ]);
-        $body = @file_get_contents($url, false, $context);
-        $status = 0;
-        foreach ($http_response_header ?? [] as $line) {
-            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) $status = (int)$m[1];
-        }
-        if ($body === false) throw new RuntimeException('Slack request failed. Enable PHP cURL for clearer network errors.');
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('mail_to is not a valid email address in config.php.');
+    }
+    if (!filter_var($from, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('mail_from is not a valid email address in config.php.');
+    }
+    if (!function_exists('mail')) {
+        throw new RuntimeException('PHP mail() is not available on this server.');
     }
 
-    if ($status < 200 || $status >= 300 || trim((string)$body) !== 'ok') {
-        throw new RuntimeException('Slack returned HTTP ' . $status . ': ' . trim((string)$body));
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Transfer-Encoding: 8bit',
+        'From: ' . $fromName . ' <' . $from . '>',
+        'Reply-To: ' . $from,
+        'X-Prompt-Bridge: 1',
+    ];
+
+    $ok = @mail(
+        $to,
+        clean_mail_header($subject),
+        $body,
+        implode("\r\n", $headers)
+    );
+
+    if (!$ok) {
+        throw new RuntimeException('PHP mail() could not hand the message to the mail server. Check Hostinger mail settings or use a domain mailbox as mail_from.');
     }
-    return ['ok' => true, 'status' => $status, 'body' => trim((string)$body)];
+
+    return ['ok' => true, 'to' => $to];
 }
 
 function run_schedule(array $schedule, DateTimeImmutable $triggeredAt, string $source, ?string $runKey = null): array
 {
-    $message = build_slack_message($schedule, $triggeredAt, $source);
+    $job = build_email_job($schedule, $triggeredAt, $source);
     try {
-        $result = slack_send($message);
-        add_log((int)$schedule['id'], $runKey, 'sent', 'Prompt sent to Slack successfully.');
-        return ['ok' => true, 'message' => $message, 'slack' => $result];
+        $result = email_send($job['subject'], $job['body']);
+        add_log((int)$schedule['id'], $runKey, 'sent', 'Prompt email handed to the mail server successfully.');
+        return ['ok' => true, 'email' => $job, 'delivery' => $result];
     } catch (Throwable $e) {
         add_log((int)$schedule['id'], $runKey, 'failed', $e->getMessage());
         throw $e;
