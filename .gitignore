@@ -1,4 +1,4 @@
-config.php
-storage/*.json
-storage/*.log
+social-scheduler/config.php
+social-scheduler/storage/*.json
+social-scheduler/storage/*.log
 .DS_Store

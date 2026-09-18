@@ -54,10 +54,10 @@ Example:
 Copy:
 
 ~~~bash
-cp config.example.php config.php
+cp social-scheduler/config.example.php social-scheduler/config.php
 ~~~
 
-Edit config.php:
+Edit social-scheduler/config.php:
 
 ~~~php
 return [
@@ -71,7 +71,7 @@ return [
 ];
 ~~~
 
-config.php is ignored by Git and must never be committed.
+social-scheduler/config.php is ignored by Git and must never be committed.
 
 ## 3. Slack
 
@@ -111,7 +111,7 @@ Metricool remains the publishing layer. Prompt Bridge never needs your Instagram
 Run every minute:
 
 ~~~cron
-* * * * * /usr/bin/php /home/USER/domains/automation.example.com/public_html/cron.php >/dev/null 2>&1
+* * * * * /usr/bin/php /home/USER/domains/automation.example.com/public_html/social-scheduler/cron.php >/dev/null 2>&1
 ~~~
 
 Use the exact PHP path and site path from your host.
@@ -121,7 +121,7 @@ Use the exact PHP path and site path from your host.
 If your host only supports URL cron jobs:
 
 ~~~text
-https://automation.example.com/cron.php?key=YOUR_CRON_SECRET
+https://automation.example.com/social-scheduler/cron.php?key=YOUR_CRON_SECRET
 ~~~
 
 Run it every minute and keep the secret private.
@@ -146,12 +146,20 @@ If publish time is earlier than or equal to trigger time, Prompt Bridge uses the
 - .htaccess blocks direct access to application/config files and storage on Apache-compatible hosting.
 - If your host ignores .htaccess, move storage_path outside public_html and deny web access to config.php.
 
-## Files
+## Folder layout
 
-- index.php — dashboard
-- app.php — database, schedule logic and Slack delivery
-- cron.php — your minute-based runner
-- health.php — health endpoint
-- config.example.php — safe configuration template
-- assets/app.css — responsive UI
-- storage/ — JSON state, ignored by Git
+~~~text
+social-scheduler/
+├── index.php
+├── app.php
+├── cron.php
+├── health.php
+├── config.example.php
+├── .htaccess
+├── assets/
+│   └── app.css
+└── storage/
+    └── .htaccess
+~~~
+
+Deploy the repository so the folder is available at /social-scheduler/. Then copy social-scheduler/config.example.php to social-scheduler/config.php on the server.
