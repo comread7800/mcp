@@ -25,6 +25,10 @@ function app_config(): array
     $config['mail_to'] = trim((string)($config['mail_to'] ?? ''));
     $config['mail_from'] = trim((string)($config['mail_from'] ?? ''));
     $config['mail_from_name'] = trim((string)($config['mail_from_name'] ?? 'Prompt Bridge')) ?: 'Prompt Bridge';
+    $config['smtp_host'] = trim((string)($config['smtp_host'] ?? 'smtp.gmail.com')) ?: 'smtp.gmail.com';
+    $config['smtp_port'] = (int)($config['smtp_port'] ?? 587);
+    $config['smtp_username'] = trim((string)($config['smtp_username'] ?? ''));
+    $config['smtp_app_password'] = preg_replace('/\s+/', '', (string)($config['smtp_app_password'] ?? '')) ?? '';
     $config['cron_secret'] = (string)($config['cron_secret'] ?? '');
     $config['message_tag'] = trim((string)($config['message_tag'] ?? 'SOCIAL_AUTOMATION')) ?: 'SOCIAL_AUTOMATION';
     $config['storage_path'] = (string)($config['storage_path'] ?? (__DIR__ . '/storage'));
@@ -392,44 +396,97 @@ function clean_mail_header(string $value): string
     return trim(str_replace(["\r", "\n"], '', $value));
 }
 
+function smtp_subject(string $subject): string
+{
+    $clean = clean_mail_header($subject);
+    return '=?UTF-8?B?' . base64_encode($clean) . '?=';
+}
+
 function email_send(string $subject, string $body): array
 {
     $config = app_config();
     $to = clean_mail_header($config['mail_to']);
-    $from = clean_mail_header($config['mail_from']);
+    $username = clean_mail_header($config['smtp_username']);
+    $password = (string)$config['smtp_app_password'];
+    $from = clean_mail_header($config['mail_from'] !== '' ? $config['mail_from'] : $username);
     $fromName = clean_mail_header($config['mail_from_name']);
+    $host = clean_mail_header($config['smtp_host']);
+    $port = (int)$config['smtp_port'];
 
     if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException('mail_to is not a valid email address in config.php.');
     }
+    if (!filter_var($username, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('smtp_username must be your Gmail address in config.php.');
+    }
     if (!filter_var($from, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException('mail_from is not a valid email address in config.php.');
     }
-    if (!function_exists('mail')) {
-        throw new RuntimeException('PHP mail() is not available on this server.');
+    if ($password === '' || str_contains($password, 'CHANGE')) {
+        throw new RuntimeException('smtp_app_password is missing. Use a Google App Password, not your normal Gmail password.');
+    }
+    if ($host === '' || $port < 1 || $port > 65535) {
+        throw new RuntimeException('SMTP host/port are invalid in config.php.');
+    }
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('PHP cURL is required for authenticated SMTP delivery.');
     }
 
-    $headers = [
+    $domain = substr(strrchr($username, '@') ?: '@localhost', 1) ?: 'localhost';
+    $messageId = '<' . bin2hex(random_bytes(12)) . '@' . $domain . '>';
+    $lines = [
+        'Date: ' . date(DATE_RFC2822),
+        'To: <' . $to . '>',
+        'From: ' . $fromName . ' <' . $from . '>',
+        'Reply-To: <' . $from . '>',
+        'Subject: ' . smtp_subject($subject),
+        'Message-ID: ' . $messageId,
         'MIME-Version: 1.0',
         'Content-Type: text/plain; charset=UTF-8',
         'Content-Transfer-Encoding: 8bit',
-        'From: ' . $fromName . ' <' . $from . '>',
-        'Reply-To: ' . $from,
         'X-Prompt-Bridge: 1',
+        '',
+        str_replace(["\r\n", "\r"], "\n", $body),
     ];
+    $payload = str_replace("\n", "\r\n", implode("\n", $lines)) . "\r\n";
+    $stream = fopen('php://temp', 'r+');
+    if ($stream === false) {
+        throw new RuntimeException('Unable to create SMTP message stream.');
+    }
+    fwrite($stream, $payload);
+    rewind($stream);
 
-    $ok = @mail(
-        $to,
-        clean_mail_header($subject),
-        $body,
-        implode("\r\n", $headers)
-    );
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => 'smtp://' . $host . ':' . $port,
+        CURLOPT_USERNAME => $username,
+        CURLOPT_PASSWORD => $password,
+        CURLOPT_USE_SSL => CURLUSESSL_ALL,
+        CURLOPT_MAIL_FROM => '<' . $username . '>',
+        CURLOPT_MAIL_RCPT => ['<' . $to . '>'],
+        CURLOPT_UPLOAD => true,
+        CURLOPT_INFILE => $stream,
+        CURLOPT_INFILESIZE => strlen($payload),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+    ]);
 
-    if (!$ok) {
-        throw new RuntimeException('PHP mail() could not hand the message to the mail server. Check Hostinger mail settings or use a domain mailbox as mail_from.');
+    $result = curl_exec($ch);
+    $error = curl_error($ch);
+    $errorNo = curl_errno($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    fclose($stream);
+
+    if ($result === false || $errorNo !== 0) {
+        throw new RuntimeException('SMTP delivery failed: ' . ($error !== '' ? $error : 'unknown cURL error'));
+    }
+    if ($status >= 400) {
+        throw new RuntimeException('SMTP server returned status ' . $status . '. Check Gmail address and App Password.');
     }
 
-    return ['ok' => true, 'to' => $to];
+    return ['ok' => true, 'to' => $to, 'via' => $host . ':' . $port];
 }
 
 function run_schedule(array $schedule, DateTimeImmutable $triggeredAt, string $source, ?string $runKey = null): array
@@ -437,7 +494,7 @@ function run_schedule(array $schedule, DateTimeImmutable $triggeredAt, string $s
     $job = build_email_job($schedule, $triggeredAt, $source);
     try {
         $result = email_send($job['subject'], $job['body']);
-        add_log((int)$schedule['id'], $runKey, 'sent', 'Prompt email handed to the mail server successfully.');
+        add_log((int)$schedule['id'], $runKey, 'sent', 'Prompt email sent through authenticated SMTP successfully.');
         return ['ok' => true, 'email' => $job, 'delivery' => $result];
     } catch (Throwable $e) {
         add_log((int)$schedule['id'], $runKey, 'failed', $e->getMessage());
