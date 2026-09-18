@@ -1,209 +1,157 @@
-# Hostinger Files MCP
+# Prompt Bridge
 
-Remote MCP server for safely working with a Hostinger website over SSH/SFTP.
+A clean single-user scheduler for this flow:
 
-The MCP server does **not** need your Hostinger password in source code. It uses an SSH private key stored as an environment variable and confines file operations to one configured website root.
+~~~text
+Your website schedule
+        ↓
+Slack channel message
+        ↓
+ChatGPT Work event trigger
+        ↓
+AI creates/researches the post + media
+        ↓
+Connected Metricool plugin
+        ↓
+Instagram scheduled/published by Metricool
+~~~
 
-## What it can do
+This project does **not** use ChatGPT's time scheduler and does **not** call the OpenAI API. Your own hosting cron decides when the prompt is sent.
 
-- Test Hostinger SSH connectivity
-- List website files and directories
-- Read UTF-8 files
-- Create or replace files
-- Replace exact text in a file
-- Create directories
-- Move/rename files and directories
-- Delete files or empty directories with explicit confirmation
-- Run one pre-configured deploy command
-- Generate Instagram captions and images with OpenAI
-- Preview or publish a post to one configured Instagram account
-- Run a persistent time-based Instagram posting schedule
+## Features
 
-## Safety model
-
-- `HOSTINGER_ROOT` is the only writable/readable filesystem boundary.
-- `..` traversal outside that root is rejected.
-- Existing files are backed up before write/replace by default.
-- File reads/writes have configurable byte limits.
-- `run_deploy` cannot accept arbitrary commands from the MCP client. It can only execute the exact `HOSTINGER_DEPLOY_COMMAND` configured on the server.
-- `.env`, SSH keys, PEM files and key files are excluded by `.gitignore`.
-- The remote MCP HTTP endpoint uses a bearer token by default.
+- Password-protected dashboard
+- Daily/weekly prompt schedules
+- Separate trigger time and Metricool publish time
+- Slack Incoming Webhook delivery
+- Stable [SOCIAL_AUTOMATION] message tag for ChatGPT Work
+- Run now, edit, pause/enable and delete
+- JSON delivery log with file locking
+- No Instagram API credentials
+- No OpenAI API key
 
 ## Requirements
 
-- Node.js 20+
-- A publicly reachable HTTPS URL for this MCP service
-- Hostinger SSH access enabled for the hosting account
-- An SSH key authorized on Hostinger
+- PHP 8.1+
+- PHP cURL recommended
+- HTTPS hosting
+- Slack Incoming Webhook
+- ChatGPT Work Slack event trigger for the same channel
+- Metricool connected to ChatGPT and Instagram connected inside Metricool
 
-The MCP service may run on a Hostinger plan that supports Node.js apps, or on another Node host. It then connects to the PHP website through Hostinger SSH/SFTP.
+## 1. Upload
 
-## 1. Install
+Upload the repository to a dedicated folder or subdomain on your hosting.
 
-```bash
-npm install
-cp .env.example .env
-```
+Example:
 
-## 2. Configure Hostinger
+~~~text
+/home/USER/domains/automation.example.com/public_html/
+~~~
 
-Open hPanel and copy the SSH host, port and username from the website's SSH Access section.
+## 2. Configure
 
-Set these values in `.env`:
+Copy:
 
-```env
-HOSTINGER_SSH_HOST=your-ssh-host
-HOSTINGER_SSH_PORT=65002
-HOSTINGER_SSH_USER=u123456789
-HOSTINGER_ROOT=/home/u123456789/domains/example.com/public_html
-```
+~~~bash
+cp config.example.php config.php
+~~~
 
-Use SSH-key authentication. Put the private key in one of these variables:
+Edit config.php:
 
-```env
-HOSTINGER_SSH_PRIVATE_KEY="-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
-```
+~~~php
+return [
+    'app_name' => 'My Social Scheduler',
+    'timezone' => 'Asia/Kolkata',
+    'admin_password' => 'use-a-long-unique-password',
+    'slack_webhook_url' => 'https://hooks.slack.com/services/...',
+    'cron_secret' => 'another-long-random-secret',
+    'message_tag' => 'SOCIAL_AUTOMATION',
+    'storage_path' => __DIR__ . '/storage',
+];
+~~~
 
-or base64-encode it and use:
+config.php is ignored by Git and must never be committed.
 
-```env
-HOSTINGER_SSH_PRIVATE_KEY_BASE64=...
-```
+## 3. Slack
 
-Do not commit the real `.env` file.
+Create or reuse a Slack app, enable Incoming Webhooks, and point one webhook at a private automation channel such as:
 
-## 3. Protect the MCP endpoint
+~~~text
+#chatgpt-social-queue
+~~~
 
-Generate a long random token and set:
+Paste that webhook URL into config.php.
 
-```env
-MCP_AUTH_MODE=token
-MCP_ACCESS_TOKEN=your-long-random-secret
-```
+Log in to Prompt Bridge and press **Test Slack**. A test message should arrive in the channel.
 
-`MCP_AUTH_MODE=none` is available only for isolated testing and should not be used on a public URL.
+## 4. ChatGPT Work setup
 
-## 4. Optional deploy command
+Create one Slack event-triggered Work task for the same channel. The website controls **time**; the Work task only reacts to new Slack messages.
 
-If a fixed deployment command is useful, configure it once on the server:
+Use an instruction equivalent to:
 
-```env
-HOSTINGER_DEPLOY_COMMAND=cd /home/u123456789/domains/example.com/public_html && git pull --ff-only
-```
+~~~text
+When a new Slack message starts with [SOCIAL_AUTOMATION], execute the PROMPT completely.
+Research current information when the prompt requires it.
+Create the required Instagram caption and visual/media.
+Then use my connected Metricool plugin to schedule the finished Instagram post for PUBLISH_AT.
+Do not create a ChatGPT time-based schedule.
+Ignore messages with SOURCE: TEST.
+If Metricool succeeds, return the planner link/status.
+If a required input is genuinely missing, report the exact blocker.
+~~~
 
-The MCP client cannot substitute a different shell command.
+Metricool remains the publishing layer. Prompt Bridge never needs your Instagram password or token.
 
-## 5. Run
+## 5. Your own cron
 
-```bash
-npm run check
-npm start
-```
+### Preferred: PHP CLI cron
 
-Health endpoint:
+Run every minute:
 
-```text
-GET /healthz
-```
+~~~cron
+* * * * * /usr/bin/php /home/USER/domains/automation.example.com/public_html/cron.php >/dev/null 2>&1
+~~~
 
-MCP endpoint:
+Use the exact PHP path and site path from your host.
 
-```text
-POST /mcp
-Authorization: Bearer <MCP_ACCESS_TOKEN>
-```
+### Alternative: HTTP cron
 
-## MCP tools
+If your host only supports URL cron jobs:
 
-| Tool | Purpose |
-| --- | --- |
-| `hostinger_status` | Verify SSH and website-root connectivity |
-| `list_files` | List files/folders under the configured root |
-| `read_file` | Read a UTF-8 text file |
-| `write_file` | Create/replace a file, backing up existing files by default |
-| `replace_in_file` | Exact text replacement with optional replace-all |
-| `make_directory` | Create one directory |
-| `move_path` | Rename/move a path within the root |
-| `delete_path` | Delete a file/symlink or empty directory; requires `confirm=true` |
-| `run_deploy` | Execute only the configured deployment command |
+~~~text
+https://automation.example.com/cron.php?key=YOUR_CRON_SECRET
+~~~
 
-## Recommended production setup
+Run it every minute and keep the secret private.
 
-Expose the MCP service only over HTTPS. Keep bearer-token authentication enabled, use a dedicated Hostinger SSH key, and set `HOSTINGER_ROOT` to the specific site's `public_html` directory rather than the entire hosting account.
+## Publish-time behavior
 
-For live PHP sites, keep backups enabled until the workflow is proven. The server automatically creates timestamped `.mcp-backup-*` copies before file replacements unless `backup=false` is explicitly requested.
+Example:
 
-## Instagram auto-poster (single account)
+- Trigger: 08:00
+- Publish in Metricool: 10:00
 
-This repository also supports a private, single-owner Instagram workflow. It is intentionally not a multi-user SaaS login system.
+At 08:00 Prompt Bridge sends the Slack job. ChatGPT Work then creates the post and schedules it in Metricool for 10:00.
 
-### How the automation works
+If publish time is earlier than or equal to trigger time, Prompt Bridge uses the **next day**. Example: trigger 20:00, publish 09:00 means tomorrow at 09:00.
 
-The reliable unattended flow is:
+## Security
 
-```text
-schedule -> OpenAI API -> caption + image -> public /generated URL -> Instagram API -> publish
-```
+- Keep config.php private.
+- Use a dedicated Slack channel/webhook.
+- Use a strong dashboard password and cron secret.
+- Use HTTPS.
+- .htaccess blocks direct access to application/config files and storage on Apache-compatible hosting.
+- If your host ignores .htaccess, move storage_path outside public_html and deny web access to config.php.
 
-An MCP server cannot independently push a new message into an already-open ChatGPT conversation. MCP tools are normally called by the MCP host. For scheduled posting, this server therefore runs its own scheduler and calls the OpenAI API directly. You can still connect the same MCP to ChatGPT/Claude and use its Instagram tools manually.
+## Files
 
-### Instagram requirement
-
-The configured Instagram account must be an Instagram **Professional** account (Business or Creator) with publishing permissions. A consumer Personal account is not supported by Meta's official content-publishing API. If this is your own personal-use account, convert that account to Creator or Business first.
-
-Create a Meta developer app, add the Instagram product, and configure Business Login with the redirect URI `https://YOUR-MCP-DOMAIN/instagram/callback`. Then configure:
-
-```env
-INSTAGRAM_APP_ID=...
-INSTAGRAM_APP_SECRET=...
-INSTAGRAM_API_VERSION=v26.0
-PUBLIC_BASE_URL=https://YOUR-MCP-DOMAIN
-```
-
-After deployment, call the MCP tool `instagram_connect_url`, open the returned URL in your browser, and log into the Instagram account you want to connect. The callback exchanges the authorization code for a long-lived token, saves the Instagram-scoped user ID and username, and keeps the token out of MCP responses.
-
-If you prefer manual setup, `INSTAGRAM_USER_ID` and `INSTAGRAM_ACCESS_TOKEN` remain available as a fallback.
-
-### OpenAI and public image configuration
-
-Scheduled generation uses the OpenAI API, which is billed separately from a ChatGPT subscription.
-
-```env
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.6-luna
-OPENAI_IMAGE_MODEL=gpt-image-2
-PUBLIC_BASE_URL=https://your-mcp-domain.example
-DEFAULT_TIMEZONE=Asia/Kolkata
-```
-
-`PUBLIC_BASE_URL` must be an HTTPS URL reachable by Instagram. Generated JPEGs are exposed at random URLs under `/generated/` so Meta can fetch them during publishing.
-
-### Instagram MCP tools
-
-| Tool | Purpose |
-| --- | --- |
-| `instagram_connect_url` | Get a short-lived browser login URL for connecting the owner account |
-| `instagram_disconnect` | Clear the stored account and disable its schedule; requires `confirm=true` |
-| `instagram_status` | Check configuration, connected account, schedule, and recent runs without exposing secrets |
-| `instagram_set_schedule` | Set timezone, posting times, default prompt, enable/disable, and dry-run mode |
-| `instagram_preview_post` | Generate caption + image but do not publish |
-| `instagram_generate_and_publish` | Generate and publish one post; requires `confirm=true` |
-| `instagram_publish_image` | Publish an existing public image URL + caption; requires `confirm=true` |
-
-A safe first setup is:
-
-```json
-{
-  "timezone": "Asia/Kolkata",
-  "times": ["10:00", "19:00"],
-  "prompt": "Create one useful post about AI tools and web design for small business owners.",
-  "enabled": true,
-  "dryRun": true
-}
-```
-
-Run `instagram_preview_post` first. When the output is correct, change the schedule to `"dryRun": false`; scheduled jobs will then publish automatically.
-
-The scheduler checks every 30 seconds and deduplicates each configured time slot. The Node process must stay running continuously. If your hosting sleeps or stops Node processes, use a persistent Node host or configure your host to keep/restart the app.
-
-Generated state and media are stored under `.data/` by default and are excluded from Git.
+- index.php — dashboard
+- app.php — database, schedule logic and Slack delivery
+- cron.php — your minute-based runner
+- health.php — health endpoint
+- config.example.php — safe configuration template
+- assets/app.css — responsive UI
+- storage/ — JSON state, ignored by Git
