@@ -8,7 +8,10 @@ import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import * as z from 'zod/v4';
 import {
+  disconnectInstagram,
   generatedDir,
+  getInstagramConnectUrl,
+  handleInstagramOAuthCallback,
   instagramStatus,
   publishInstagramImage,
   runInstagramPost,
@@ -429,6 +432,31 @@ function buildMcpServer() {
   });
 
 
+
+  server.registerTool('instagram_connect_url', {
+    description: 'Create a short-lived Instagram Business Login URL for connecting the single owner account in a browser.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true }
+  }, async () => {
+    try {
+      return textResult({ url: getInstagramConnectUrl(), expiresInMinutes: 15 });
+    } catch (error) {
+      return toolError(error);
+    }
+  });
+
+  server.registerTool('instagram_disconnect', {
+    description: 'Disconnect the stored Instagram account and disable its posting schedule. Requires confirm=true.',
+    inputSchema: z.object({ confirm: z.literal(true) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }
+  }, async () => {
+    try {
+      return textResult(await disconnectInstagram());
+    } catch (error) {
+      return toolError(error);
+    }
+  });
+
   server.registerTool('instagram_status', {
     description: 'Show Instagram/OpenAI configuration, posting schedule and recent runs without exposing secrets.',
     inputSchema: z.object({}),
@@ -525,6 +553,22 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' }));
 app.use('/generated', express.static(generatedDir, { index: false, maxAge: '7d' }));
+
+
+app.get('/instagram/callback', async (req, res) => {
+  try {
+    if (req.query.error) {
+      const detail = req.query.error_description || req.query.error_reason || req.query.error;
+      return res.status(400).type('html').send('<!doctype html><meta charset="utf-8"><title>Instagram connection failed</title><h1>Instagram connection failed</h1><p>' + String(detail).replace(/[&<>"']/g, '') + '</p>');
+    }
+    const result = await handleInstagramOAuthCallback({ code: req.query.code, state: req.query.state });
+    const username = result.username ? '@' + result.username : result.instagramUserId;
+    res.type('html').send('<!doctype html><meta charset="utf-8"><title>Instagram connected</title><style>body{font-family:system-ui;max-width:680px;margin:80px auto;padding:24px;line-height:1.5}h1{font-size:32px}</style><h1>Instagram connected</h1><p>Connected ' + username + '. You can close this tab and return to ChatGPT/Claude.</p>');
+  } catch (error) {
+    console.error('[instagram-oauth]', error);
+    res.status(400).type('html').send('<!doctype html><meta charset="utf-8"><title>Instagram connection failed</title><h1>Instagram connection failed</h1><p>Check the server logs and Meta app redirect settings, then try again.</p>');
+  }
+});
 
 app.get('/healthz', (_req, res) => {
   res.json({ ok: true, service: 'hostinger-files-mcp', sshConfigured: sshConfigured(), authMode: config.authMode });
