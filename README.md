@@ -26,14 +26,13 @@ This project does **not** use ChatGPT's time scheduler and does **not** call the
 - Slack Incoming Webhook delivery
 - Stable [SOCIAL_AUTOMATION] message tag for ChatGPT Work
 - Run now, edit, pause/enable and delete
-- SQLite delivery log
+- JSON delivery log with file locking
 - No Instagram API credentials
 - No OpenAI API key
 
 ## Requirements
 
 - PHP 8.1+
-- PDO SQLite
 - PHP cURL recommended
 - HTTPS hosting
 - Slack Incoming Webhook
@@ -155,4 +154,4 @@ If publish time is earlier than or equal to trigger time, Prompt Bridge uses the
 - health.php — health endpoint
 - config.example.php — safe configuration template
 - assets/app.css — responsive UI
-- storage/ — SQLite data, ignored by Git
+- storage/ — JSON state, ignored by Git
