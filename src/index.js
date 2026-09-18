@@ -500,7 +500,7 @@ function buildMcpServer() {
   });
 
   server.registerTool('instagram_generate_and_publish', {
-    description: 'Generate a caption and image with OpenAI and publish it to the configured Instagram account. Requires confirm=true and dryRun=false.',
+    description: 'Generate a caption and image with OpenAI and publish it to the configured Instagram account. Requires confirm=true. Schedule dry-run mode does not block this explicit manual publish.',
     inputSchema: z.object({ prompt: z.string().min(1).max(4000).optional(), confirm: z.literal(true) }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, async ({ prompt }) => {
