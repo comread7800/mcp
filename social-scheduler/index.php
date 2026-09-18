@@ -6,6 +6,14 @@ $error = null;
 $notice = null;
 $configError = null;
 
+function redirect_with_notice(string $message): never
+{
+    app_start_session();
+    $_SESSION['flash_notice'] = $message;
+    header('Location: index.php', true, 303);
+    exit;
+}
+
 try {
     $config = app_config();
     app_db();
@@ -15,6 +23,12 @@ try {
 }
 
 if ($configError === null) {
+    app_start_session();
+    if (isset($_SESSION['flash_notice'])) {
+        $notice = (string)$_SESSION['flash_notice'];
+        unset($_SESSION['flash_notice']);
+    }
+
     if (isset($_GET['logout'])) {
         app_logout();
         header('Location: index.php');
@@ -37,21 +51,21 @@ if ($configError === null) {
             if ($action === 'save') {
                 $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
                 save_schedule($_POST, $id);
-                $notice = $id ? 'Schedule updated.' : 'Schedule created.';
+                redirect_with_notice($id ? 'Schedule updated.' : 'Schedule created.');
             } elseif ($action === 'toggle') {
                 toggle_schedule((int)($_POST['id'] ?? 0));
-                $notice = 'Schedule status changed.';
+                redirect_with_notice('Schedule status changed.');
             } elseif ($action === 'delete') {
                 delete_schedule((int)($_POST['id'] ?? 0));
-                $notice = 'Schedule deleted.';
+                redirect_with_notice('Schedule deleted.');
             } elseif ($action === 'run') {
                 run_schedule_now((int)($_POST['id'] ?? 0));
-                $notice = 'Prompt email sent. ChatGPT Work should receive it through the Gmail event trigger.';
+                redirect_with_notice('Prompt email sent. ChatGPT Work should receive it through the Gmail event trigger.');
             } elseif ($action === 'test_email') {
                 $tag = app_config()['message_tag'];
                 email_send('[' . $tag . '] Prompt Bridge TEST', '[' . $tag . "]\nSOURCE: TEST\nPrompt Bridge email connection test. No content should be scheduled for this test message.");
                 add_log(null, null, 'sent', 'Email connection test handed to the mail server successfully.');
-                $notice = 'Test email sent successfully.';
+                redirect_with_notice('Test email sent successfully.');
             }
         } catch (Throwable $e) {
             $error = $e->getMessage();
