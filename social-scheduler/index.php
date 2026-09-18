@@ -120,12 +120,12 @@ $dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'S
             <div>
                 <div class="eyebrow">Important</div>
                 <h2>This site does not use ChatGPT's time scheduler.</h2>
-                <p>Your hosting cron controls the trigger time. At that minute this site sends your structured prompt by email. A ChatGPT Work Gmail event trigger then performs the AI work and sends the finished post to your already-connected Metricool account.</p>
+                <p>Your hosting cron controls the trigger time. At that minute this site sends your structured prompt through authenticated Gmail SMTP. A ChatGPT Work Gmail event trigger then performs the AI work and sends the finished post to your already-connected Metricool account.</p>
             </div>
             <form method="post">
                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                 <input type="hidden" name="action" value="test_email">
-                <button class="button secondary" type="submit">Test Email</button>
+                <button class="button secondary" type="submit">Test Gmail SMTP</button>
             </form>
         </section>
 

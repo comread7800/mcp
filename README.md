@@ -23,7 +23,7 @@ This project does **not** use ChatGPT's time-based scheduler and does **not** ca
 - Password-protected dashboard
 - Daily/weekly prompt schedules
 - Separate trigger time and Metricool publish time
-- Email delivery using PHP mail()
+- Authenticated Gmail SMTP delivery
 - Stable [SOCIAL_AUTOMATION] subject/body tag for ChatGPT Work
 - Run now, edit, pause/enable and delete
 - JSON delivery log with file locking
@@ -34,7 +34,8 @@ This project does **not** use ChatGPT's time-based scheduler and does **not** ca
 
 - PHP 8.1+
 - HTTPS hosting
-- PHP mail() enabled by the host
+- PHP cURL enabled by the host
+- Gmail with 2-Step Verification and a Google App Password
 - One inbox that ChatGPT Work can monitor through Gmail
 - ChatGPT Work Gmail event trigger
 - Metricool connected to ChatGPT
@@ -82,7 +83,13 @@ return [
     'admin_password' => 'use-a-long-unique-password',
 
     'mail_to' => 'YOUR_GMAIL_ADDRESS',
-    'mail_from' => 'automation@YOUR_DOMAIN',
+
+    'smtp_host' => 'smtp.gmail.com',
+    'smtp_port' => 587,
+    'smtp_username' => 'YOUR_GMAIL_ADDRESS',
+    'smtp_app_password' => 'YOUR_GOOGLE_APP_PASSWORD',
+
+    'mail_from' => 'YOUR_GMAIL_ADDRESS',
     'mail_from_name' => 'Prompt Bridge',
 
     'cron_secret' => 'another-long-random-secret',
@@ -91,13 +98,13 @@ return [
 ];
 ~~~
 
-Use a real mailbox on your own domain for mail_from when possible. It generally gives better deliverability than using an unrelated From address.
+Use a Google App Password in smtp_app_password, not your normal Gmail password. For the simplest setup, keep smtp_username, mail_from, and mail_to on the same Gmail account that is connected to ChatGPT Work.
 
 config.php is ignored by Git and must never be committed.
 
 ## 3. Test email delivery
 
-Open the scheduler dashboard and press **Test Email**.
+Open the scheduler dashboard and press **Test Email**. The website sends it through smtp.gmail.com using your authenticated Gmail account.
 
 The inbox configured in mail_to should receive an email with a subject similar to:
 
