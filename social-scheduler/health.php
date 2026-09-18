@@ -9,7 +9,7 @@ try {
         'ok' => true,
         'service' => 'prompt-bridge',
         'timezone' => $config['timezone'],
-        'slackConfigured' => $config['slack_webhook_url'] !== '' && !str_contains($config['slack_webhook_url'], 'REPLACE/ME'),
+        'emailConfigured' => filter_var($config['mail_to'], FILTER_VALIDATE_EMAIL) !== false && filter_var($config['mail_from'], FILTER_VALIDATE_EMAIL) !== false,
     ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 } catch (Throwable $e) {
     http_response_code(500);
