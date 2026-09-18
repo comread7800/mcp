@@ -254,23 +254,22 @@ function save_schedule(array $data, ?int $id = null): int
     $name = trim((string)($data['name'] ?? ''));
     $prompt = trim((string)($data['prompt'] ?? ''));
     $trigger = trim((string)($data['trigger_time'] ?? ''));
-    $publish = trim((string)($data['publish_time'] ?? ''));
     $weekdays = normalize_weekdays((array)($data['weekdays'] ?? []));
 
     if ($name === '') throw new RuntimeException('Schedule name is required.');
     if ($prompt === '') throw new RuntimeException('Prompt is required.');
-    if (!valid_hhmm($trigger) || !valid_hhmm($publish)) throw new RuntimeException('Trigger and publish times must use HH:MM.');
+    if (!valid_hhmm($trigger)) throw new RuntimeException('Trigger time must use HH:MM.');
 
     $now = app_now()->format(DateTimeInterface::ATOM);
 
-    return with_state(static function (array &$state) use ($id, $name, $prompt, $trigger, $publish, $weekdays, $now): int {
+    return with_state(static function (array &$state) use ($id, $name, $prompt, $trigger, $weekdays, $now): int {
         if ($id !== null) {
             foreach ($state['schedules'] as &$schedule) {
                 if ((int)$schedule['id'] === $id) {
                     $schedule['name'] = $name;
                     $schedule['prompt'] = $prompt;
                     $schedule['trigger_time'] = $trigger;
-                    $schedule['publish_time'] = $publish;
+                    unset($schedule['publish_time']);
                     $schedule['weekdays'] = $weekdays;
                     $schedule['updated_at'] = $now;
                     return $id;
@@ -286,7 +285,6 @@ function save_schedule(array $data, ?int $id = null): int
             'name' => $name,
             'prompt' => $prompt,
             'trigger_time' => $trigger,
-            'publish_time' => $publish,
             'weekdays' => $weekdays,
             'enabled' => 1,
             'last_run_key' => null,
@@ -358,18 +356,9 @@ function add_log(?int $scheduleId, ?string $runKey, string $status, string $mess
     }, true);
 }
 
-function publish_at_for(array $schedule, DateTimeImmutable $triggeredAt): DateTimeImmutable
-{
-    [$hour, $minute] = array_map('intval', explode(':', $schedule['publish_time']));
-    $target = $triggeredAt->setTime($hour, $minute, 0);
-    if ($target <= $triggeredAt) $target = $target->modify('+1 day');
-    return $target;
-}
-
 function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string $source): array
 {
     $config = app_config();
-    $publishAt = publish_at_for($schedule, $triggeredAt);
     $tag = $config['message_tag'];
 
     $subject = '[' . $tag . '] ' . $schedule['name'];
@@ -377,16 +366,16 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
         . 'SOURCE: ' . strtoupper($source) . "\n"
         . 'SCHEDULE_ID: ' . $schedule['id'] . "\n"
         . 'SCHEDULE_NAME: ' . $schedule['name'] . "\n"
-        . 'TRIGGERED_AT: ' . $triggeredAt->format('Y-m-d H:i:s T') . "\n"
-        . 'PUBLISH_AT: ' . $publishAt->format('Y-m-d H:i:s T') . "\n\n"
+        . 'TRIGGERED_AT: ' . $triggeredAt->format('Y-m-d H:i:s T') . "\n\n"
         . "PROMPT:\n" . trim($schedule['prompt']) . "\n\n"
         . "EXECUTION RULES:\n"
         . "1. Execute the prompt fully; research current information when the prompt requires it.\n"
         . "2. Prepare the final Instagram caption and the required visual/media.\n"
-        . "3. Use the connected Metricool plugin to schedule the finished Instagram post for exactly PUBLISH_AT.\n"
-        . "4. Do not create or use a ChatGPT time-based schedule for this task; this website already handled the trigger time.\n"
-        . "5. Mark AI-generated Instagram content correctly when the Metricool tool exposes that option.\n"
-        . "6. If scheduling succeeds, return the Metricool planner link/status. If a required input is genuinely missing, report the exact blocker instead of inventing it.";
+        . "3. Publish the finished Instagram post as soon as the content is ready using the connected Metricool plugin.\n"
+        . "4. Do not create a ChatGPT time-based schedule and do not wait for a separate publish time; this website already decided when the job should start.\n"
+        . "5. If Metricool only exposes scheduled publishing, use the earliest valid publication time available (immediate/next minute) with autoPublish enabled.\n"
+        . "6. Mark AI-generated Instagram content correctly when the Metricool tool exposes that option.\n"
+        . "7. If publication fails, report the exact Metricool/Instagram error instead of claiming it published.";
 
     return ['subject' => $subject, 'body' => $body];
 }
