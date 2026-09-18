@@ -9,7 +9,9 @@ try {
         'ok' => true,
         'service' => 'prompt-bridge',
         'timezone' => $config['timezone'],
-        'emailConfigured' => filter_var($config['mail_to'], FILTER_VALIDATE_EMAIL) !== false && filter_var($config['mail_from'], FILTER_VALIDATE_EMAIL) !== false,
+        'emailConfigured' => filter_var($config['mail_to'], FILTER_VALIDATE_EMAIL) !== false
+            && filter_var($config['smtp_username'], FILTER_VALIDATE_EMAIL) !== false
+            && $config['smtp_app_password'] !== '',
     ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 } catch (Throwable $e) {
     http_response_code(500);
