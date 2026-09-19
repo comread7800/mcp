@@ -367,7 +367,11 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
     $config = app_config();
     $tag = $config['message_tag'];
 
-    $subject = '[' . $tag . '] ' . $schedule['name'];
+    $subject = '[' . $tag . '] '
+        . $schedule['name']
+        . ' | '
+        . $triggeredAt->format('Y-m-d H:i:s')
+        . ' | JOB-' . $schedule['id'];
     $body = '[' . $tag . "]\n"
         . 'SOURCE: ' . strtoupper($source) . "\n"
         . 'SCHEDULE_ID: ' . $schedule['id'] . "\n"
