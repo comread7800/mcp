@@ -193,21 +193,179 @@ $lastSchedulerCheck = $loggedIn ? with_state(fn(array $state) => $state['meta'][
             <div class="card how-card">
                 <div class="eyebrow">One-time ChatGPT setup</div>
                 <h2>Current Work trigger instruction</h2>
-                <p>Create one Gmail event trigger in ChatGPT Work. The website controls timing; Work only reacts to the incoming automation email.</p>
-                <pre>When a NEW Gmail message arrives from rs78005142@gmail.com and its subject starts with [<?= e($config['message_tag']) ?>], read that exact message completely.
+
+                <p>
+                    Create one Gmail event trigger in ChatGPT Work.
+                    The website controls timing; Work only reacts to the incoming automation email.
+                </p>
+
+                <pre>When a NEW Gmail message arrives from rs78005142@gmail.com and its subject starts with [<?= e($config['message_tag']) ?>], process that exact newly arrived message as a separate job.
 
 If the body contains SOURCE: TEST, stop and do nothing.
 
-Find the PROMPT section and execute it completely. Research current information when the PROMPT asks for fresh or latest information. Create the complete Instagram caption and every required carousel/media asset in the requested format.
+The website controls timing, so never create a ChatGPT time-based schedule.
 
-Do not intentionally create extra duplicate media files or archive copies in ChatGPT Library. Keep only the minimum temporary media needed for publishing.
+Read the PROMPT section completely and execute it fully.
 
-Publish ONLY through my connected Metricool brand webkitti (brand ID 7005701). Do not use Composio or another direct Instagram fallback.
+Research fresh information whenever requested, using official or reputable current sources.
 
-Create the Instagram post/carousel with all media in the correct order, autoPublish enabled, and mark AI-generated content when supported. Publish as soon as the content is ready. If Metricool requires a future timestamp, use the earliest valid future time in the brand timezone.
+Reject:
+- rumors
+- stale stories
+- fake statistics
+- unsupported claims
+- recycled topics
 
-Do not create a ChatGPT time-based schedule. If Metricool reports PENDING or PUBLISHING, do not create a duplicate. If Metricool or Instagram returns ERROR/FAILED, report the exact error and stop. Never claim success unless Metricool confirms it.</pre>
-                <p class="muted">After this one-time setup, create your 4 website schedules normally. Each schedule email carries its own PROMPT, while this single Work trigger handles research, media creation and Metricool publishing.</p>
+Before choosing stories, check recent @webkitti Metricool posts and avoid obvious repetition.
+
+CONTENT + DESIGN QUALITY RULES:
+
+For tech-news carousel jobs, default to clear, natural Hindi for an Indian audience unless the email PROMPT explicitly asks for another language.
+
+Use:
+- Instagram portrait 4:5
+- 1080 × 1350 px per slide
+
+VISUAL STYLE:
+
+Use a premium modern editorial poster style.
+
+White must dominate the background.
+
+Use:
+- soft blue / cyan / purple accents
+- strong dark readable typography
+- generous whitespace
+- neat grids
+- polished card layouts
+- subtle curved/orbit accents where useful
+- realistic topic-relevant product/device/software visuals
+- realistic clean UI or product mockup tiles
+
+Avoid:
+- dark heavy backgrounds
+- generic sci-fi AI art
+- clutter
+- tiny text
+- poor alignment
+- random decoration
+- cheap-looking AI visuals
+
+SLIDE 1 — HIGHEST PRIORITY:
+
+Make the first slide the strongest slide in the carousel.
+
+It should be scroll-stopping, clean and professional.
+
+Use:
+- one large bold Hindi headline
+- one short hook line
+- each selected story as one concise teaser line
+- strong visual hierarchy
+- premium alignment
+- realistic floating tech/product cards or UI mockup tiles
+- enough whitespace
+
+Do not overcrowd the cover.
+
+The cover should feel like a premium modern tech poster made for a high-quality Indian tech page.
+
+STORY SLIDES:
+
+Keep one story per slide.
+
+Explain clearly in Hindi:
+- क्या हुआ?
+- नया क्या है?
+- क्यों जरूरी है?
+- किसके लिए useful है?
+- practical takeaway क्या है?
+
+For AI/software tools also include:
+- tool क्या करता है
+- किसके लिए useful है
+- verified free/free-tier availability
+- official website
+- simple setup/use steps
+- best practical use case
+
+Keep text concise enough for comfortable mobile reading.
+
+DATE + SOURCE:
+
+Put the correct current Asia/Kolkata date in a small readable footer on every slide.
+
+Add a truthful source label where appropriate.
+
+FINAL SLIDE:
+
+Use a clean Hindi CTA:
+- पोस्ट सेव करें
+- tech दोस्त के साथ शेयर करें
+- @webkitti को follow करें
+
+CAPTION:
+
+Write one complete Hindi Instagram caption with:
+- strong factual hook
+- current date
+- concise story summaries
+- useful context
+- source/official links where useful
+- save/share/follow CTA
+- relevant hashtags
+
+Do not use exaggerated clickbait.
+
+MEDIA HANDLING:
+
+Do not intentionally create unnecessary duplicate media files.
+Do not create archive copies.
+Keep only the minimum temporary media required for publishing.
+Avoid extra ChatGPT Library clutter whenever possible.
+
+PUBLISHING RULES:
+
+Publish ONLY through my connected Metricool account.
+
+Metricool brand:
+webkitti
+
+Brand ID:
+7005701
+
+Do not use Composio.
+Do not use another direct Instagram publishing service.
+Do not create a second fallback publication.
+
+Create one Instagram post/carousel with all media in the correct order.
+
+Use:
+- autoPublish: true
+- isAiGenerated: true when supported
+
+Publish as soon as the content is ready.
+
+If Metricool requires a future publication timestamp, use the earliest valid future time available in the Metricool brand timezone.
+
+Before submitting, check recent Metricool posts and avoid creating an obvious duplicate for the same Gmail event.
+
+If Metricool returns PENDING or PUBLISHING:
+- do not submit another copy
+- report the exact current status
+
+If Metricool or Instagram returns ERROR or FAILED:
+- report the exact error
+- stop
+- do not use another publishing service
+
+Never claim that the post was published unless Metricool confirms successful publication.</pre>
+
+                <p class="muted">
+                    After this one-time setup, create your schedules normally on this website.
+                    Each schedule email carries its own PROMPT, while this single Work trigger handles
+                    research, premium carousel creation and Metricool publishing.
+                </p>
             </div>
         </section>
 
