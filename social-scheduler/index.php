@@ -192,10 +192,22 @@ $lastSchedulerCheck = $loggedIn ? with_state(fn(array $state) => $state['meta'][
 
             <div class="card how-card">
                 <div class="eyebrow">One-time ChatGPT setup</div>
-                <h2>Work trigger instruction</h2>
-                <p>Create a Gmail event trigger in ChatGPT Work for new incoming emails whose subject starts with the automation tag. Use an instruction like this:</p>
-                <pre>When a new Gmail message has a subject starting with [<?= e($config['message_tag']) ?>], read the email body and execute the PROMPT completely. Create the required Instagram content and media, then publish it as soon as it is ready using my connected Metricool plugin. Do not create a ChatGPT time-based schedule. If Metricool requires a future publication time, use the earliest valid time with autoPublish enabled. Ignore messages marked SOURCE: TEST.</pre>
-                <p class="muted">After this one-time setup, the website controls timing. You do not need to open this chat for each post.</p>
+                <h2>Current Work trigger instruction</h2>
+                <p>Create one Gmail event trigger in ChatGPT Work. The website controls timing; Work only reacts to the incoming automation email.</p>
+                <pre>When a NEW Gmail message arrives from rs78005142@gmail.com and its subject starts with [<?= e($config['message_tag']) ?>], read that exact message completely.
+
+If the body contains SOURCE: TEST, stop and do nothing.
+
+Find the PROMPT section and execute it completely. Research current information when the PROMPT asks for fresh or latest information. Create the complete Instagram caption and every required carousel/media asset in the requested format.
+
+Do not intentionally create extra duplicate media files or archive copies in ChatGPT Library. Keep only the minimum temporary media needed for publishing.
+
+Publish ONLY through my connected Metricool brand webkitti (brand ID 7005701). Do not use Composio or another direct Instagram fallback.
+
+Create the Instagram post/carousel with all media in the correct order, autoPublish enabled, and mark AI-generated content when supported. Publish as soon as the content is ready. If Metricool requires a future timestamp, use the earliest valid future time in the brand timezone.
+
+Do not create a ChatGPT time-based schedule. If Metricool reports PENDING or PUBLISHING, do not create a duplicate. If Metricool or Instagram returns ERROR/FAILED, report the exact error and stop. Never claim success unless Metricool confirms it.</pre>
+                <p class="muted">After this one-time setup, create your 4 website schedules normally. Each schedule email carries its own PROMPT, while this single Work trigger handles research, media creation and Metricool publishing.</p>
             </div>
         </section>
 
