@@ -49,8 +49,8 @@ function app_config(): array
     $config['media_path'] = (string)($config['media_path'] ?? (__DIR__ . '/media'));
     $config['media_max_bytes'] = (int)($config['media_max_bytes'] ?? (12 * 1024 * 1024));
     $config['result_subject_tag'] = trim((string)($config['result_subject_tag'] ?? 'SOCIAL_READY')) ?: 'SOCIAL_READY';
-    $config['result_email_to'] = trim((string)($config['result_email_to'] ?? $config['smtp_username']));
-    $config['result_email_from'] = trim((string)($config['result_email_from'] ?? $config['mail_to']));
+    $config['result_email_to'] = trim((string)($config['result_email_to'] ?? '')) ?: $config['smtp_username'];
+    $config['result_email_from'] = trim((string)($config['result_email_from'] ?? '')) ?: $config['mail_to'];
     $config['imap_host'] = trim((string)($config['imap_host'] ?? 'imap.gmail.com')) ?: 'imap.gmail.com';
     $config['imap_port'] = (int)($config['imap_port'] ?? 993);
     $config['imap_username'] = trim((string)($config['imap_username'] ?? $config['smtp_username']));
