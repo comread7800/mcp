@@ -1,470 +1,129 @@
 <?php
 declare(strict_types=1);
-require __DIR__ . '/app.php';
 
-$error = null;
-$notice = null;
+require __DIR__ . '/hub.php';
+
 $configError = null;
-
-function redirect_with_notice(string $message): never
-{
-    app_start_session();
-    $_SESSION['flash_notice'] = $message;
-    header('Location: index.php', true, 303);
-    exit;
-}
-
+$error = null;
 try {
     $config = app_config();
     app_db();
 } catch (Throwable $e) {
     $configError = $e->getMessage();
-    $config = ['app_name' => 'Prompt Bridge', 'timezone' => 'Asia/Kolkata'];
+    $config = ['app_name' => 'Webkitti Automation Hub'];
 }
 
 if ($configError === null) {
-    app_start_session();
-    if (isset($_SESSION['flash_notice'])) {
-        $notice = (string)$_SESSION['flash_notice'];
-        unset($_SESSION['flash_notice']);
-    }
+    hub_handle_logout();
 
-    if (isset($_GET['logout'])) {
-        app_logout();
-        header('Location: index.php');
-        exit;
-    }
-
-    if (!app_is_logged_in()) {
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
-            if (app_login((string)($_POST['password'] ?? ''))) {
-                header('Location: index.php');
-                exit;
-            }
-            $error = 'Wrong password, or admin_password is still the default value.';
+    if (!app_is_logged_in() && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
+        if (app_login((string)($_POST['password'] ?? ''))) {
+            header('Location: index.php');
+            exit;
         }
-    } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        try {
-            csrf_verify($_POST['csrf'] ?? null);
-            $action = (string)($_POST['action'] ?? '');
-
-            if ($action === 'save') {
-                $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
-                save_schedule($_POST, $id);
-                redirect_with_notice($id ? 'Schedule updated.' : 'Schedule created.');
-            } elseif ($action === 'toggle') {
-                toggle_schedule((int)($_POST['id'] ?? 0));
-                redirect_with_notice('Schedule status changed.');
-            } elseif ($action === 'delete') {
-                delete_schedule((int)($_POST['id'] ?? 0));
-                redirect_with_notice('Schedule deleted.');
-            } elseif ($action === 'run') {
-                run_schedule_now((int)($_POST['id'] ?? 0));
-                redirect_with_notice('Prompt email sent. ChatGPT Work should receive it through the Gmail event trigger.');
-            } elseif ($action === 'test_email') {
-                $tag = app_config()['message_tag'];
-                email_send('[' . $tag . '] Prompt Bridge TEST', '[' . $tag . "]\nSOURCE: TEST\nPrompt Bridge email connection test. No content should be scheduled for this test message.");
-                add_log(null, null, 'sent', 'Email connection test handed to the mail server successfully.');
-                redirect_with_notice('Test email sent successfully.');
-            }
-        } catch (Throwable $e) {
-            $error = $e->getMessage();
-        }
+        $error = 'Wrong password, or admin_password is still the default value.';
     }
 }
 
 $loggedIn = $configError === null && app_is_logged_in();
-$edit = null;
-if ($loggedIn && isset($_GET['edit'])) {
-    $edit = get_schedule((int)$_GET['edit']);
-}
-$selectedDays = $edit ? schedule_days($edit['weekdays']) : [1,2,3,4,5,6,7];
-$dayNames = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
-$lastSchedulerCheck = $loggedIn ? with_state(fn(array $state) => $state['meta']['last_scheduler_check_at'] ?? null) : null;
-?>
-<!doctype html>
+
+if (!$loggedIn):
+?><!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= e($config['app_name']) ?></title>
-    <link rel="stylesheet" href="assets/app.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title><?= e((string)$config['app_name']) ?></title>
+<link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
 <div class="shell">
-    <header class="topbar">
-        <div>
-            <div class="eyebrow">Own scheduler → Email → ChatGPT Work → Metricool</div>
-            <h1><?= e($config['app_name']) ?></h1>
-        </div>
-        <?php if ($loggedIn): ?>
-            <a class="button ghost" href="?logout=1">Log out</a>
-        <?php endif; ?>
-    </header>
-
-    <?php if ($configError): ?>
-        <section class="card danger">
-            <h2>Setup required</h2>
-            <p><?= e($configError) ?></p>
-            <p>Copy <code>config.example.php</code> to <code>config.php</code>, fill in the password, email settings and cron secret, then reload.</p>
-        </section>
-    <?php elseif (!$loggedIn): ?>
-        <section class="card auth-card">
-            <h2>Dashboard login</h2>
+    <section class="card auth-card">
+        <div class="eyebrow">One folder · complete automation control</div>
+        <h2><?= e((string)$config['app_name']) ?></h2>
+        <?php if ($configError): ?>
+            <div class="alert error"><?= e($configError) ?></div>
+            <p>Copy <code>config.example.php</code> to <code>config.php</code>, fill your private values, then reload.</p>
+        <?php else: ?>
             <?php if ($error): ?><div class="alert error"><?= e($error) ?></div><?php endif; ?>
             <form method="post" class="stack">
                 <input type="hidden" name="action" value="login">
                 <label>Password
                     <input type="password" name="password" autocomplete="current-password" required autofocus>
                 </label>
-                <button class="button primary" type="submit">Open scheduler</button>
+                <button class="button primary" type="submit">Open Automation Hub</button>
             </form>
-        </section>
-    <?php else: ?>
-        <?php if ($error): ?><div class="alert error"><?= e($error) ?></div><?php endif; ?>
-        <?php if ($notice): ?><div class="alert success"><?= e($notice) ?></div><?php endif; ?>
-
-        <section class="grid stats">
-            <div class="card stat"><span>Timezone</span><strong>Mumbai / IST</strong><small>Asia/Kolkata</small></div>
-            <div class="card stat"><span>Active schedules</span><strong><?= count(array_filter(all_schedules(), fn($s) => (int)$s['enabled'] === 1)) ?></strong></div>
-            <div class="card stat"><span>Scheduler heartbeat</span><strong><?= $lastSchedulerCheck ? e((new DateTimeImmutable($lastSchedulerCheck))->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M, H:i:s')) : 'Not seen yet' ?></strong><small><?= $lastSchedulerCheck ? 'IST' : 'Cron has not called cron.php' ?></small></div>
-            <div class="card stat"><span>Trigger transport</span><strong>Email</strong></div>
-            <div class="card stat"><span>Publisher</span><strong>Metricool</strong></div>
-        </section>
-
-        <section class="card intro">
-            <div>
-                <div class="eyebrow">Important</div>
-                <h2>This site does not use ChatGPT's time scheduler.</h2>
-                <p>All schedule times are locked to Mumbai / India Standard Time (IST). Your hosting cron calls the scheduler; jobs never run before the selected time, and if a cron tick is late the scheduler catches up the missed job the same day instead of dropping it.</p>
-            </div>
-            <form method="post">
-                <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-                <input type="hidden" name="action" value="test_email">
-                <button class="button secondary" type="submit">Test Gmail SMTP</button>
-            </form>
-        </section>
-
-        <section class="two-col">
-            <div class="card">
-                <div class="section-title">
-                    <div>
-                        <div class="eyebrow"><?= $edit ? 'Edit schedule' : 'New schedule' ?></div>
-                        <h2><?= $edit ? e($edit['name']) : 'Create automation' ?></h2>
-                    </div>
-                    <?php if ($edit): ?><a class="text-link" href="index.php">Cancel edit</a><?php endif; ?>
-                </div>
-
-                <form method="post" class="stack">
-                    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-                    <input type="hidden" name="action" value="save">
-                    <input type="hidden" name="id" value="<?= $edit ? (int)$edit['id'] : '' ?>">
-
-                    <label>Schedule name
-                        <input name="name" maxlength="120" required value="<?= e($edit['name'] ?? '') ?>" placeholder="Morning AI tool post">
-                    </label>
-
-                    <label>Prompt sent to ChatGPT Work
-                        <textarea name="prompt" rows="10" required placeholder="Research one new useful AI tool. Create a detailed Instagram carousel and caption. Keep it practical, complete and non-repetitive."><?= e($edit['prompt'] ?? '') ?></textarea>
-                    </label>
-
-                    <div class="grid form-grid">
-                        <label>Send prompt at
-                            <input type="time" name="trigger_time" required value="<?= e($edit['trigger_time'] ?? '08:00') ?>">
-                        </label>
-                    </div>
-
-                    <fieldset>
-                        <legend>Run on</legend>
-                        <div class="days">
-                            <?php foreach ($dayNames as $num => $name): ?>
-                                <label class="day-pill">
-                                    <input type="checkbox" name="weekdays[]" value="<?= $num ?>" <?= in_array($num, $selectedDays, true) ? 'checked' : '' ?>>
-                                    <span><?= e($name) ?></span>
-                                </label>
-                            <?php endforeach; ?>
-                        </div>
-                    </fieldset>
-
-                    <button class="button primary" type="submit"><?= $edit ? 'Save changes' : 'Create schedule' ?></button>
-                </form>
-            </div>
-
-            <div class="card how-card">
-                <div class="eyebrow">One-time ChatGPT setup</div>
-                <h2>Current Work trigger instruction</h2>
-
-                <p>
-                    Create one Gmail event trigger in ChatGPT Work.
-                    The website controls timing; Work only reacts to the incoming automation email.
-                </p>
-
-                <pre>When a NEW Gmail message arrives from rs78005142@gmail.com and its subject starts with [<?= e($config['message_tag']) ?>], process that exact newly arrived message as a separate job.
-
-If the body contains SOURCE: TEST, stop and do nothing.
-
-The website controls timing, so never create a ChatGPT time-based schedule.
-
-Read the PROMPT section completely and execute it fully.
-
-Research fresh information whenever requested, using official or reputable current sources.
-
-Reject:
-- rumors
-- stale stories
-- fake statistics
-- unsupported claims
-- recycled topics
-
-Before choosing stories, check recent @webkitti Metricool posts and avoid obvious repetition.
-
-CONTENT + DESIGN QUALITY RULES:
-
-For tech-news carousel jobs, default to clear, natural Hindi for an Indian audience unless the email PROMPT explicitly asks for another language.
-
-Use:
-- Instagram portrait 4:5
-- 1080 × 1350 px per slide
-
-VISUAL STYLE:
-
-Use a premium modern editorial poster style.
-
-White must dominate the background.
-
-Use:
-- soft blue / cyan / purple accents
-- strong dark readable typography
-- generous whitespace
-- neat grids
-- polished card layouts
-- subtle curved/orbit accents where useful
-- realistic topic-relevant product/device/software visuals
-- realistic clean UI or product mockup tiles
-
-Avoid:
-- dark heavy backgrounds
-- generic sci-fi AI art
-- clutter
-- tiny text
-- poor alignment
-- random decoration
-- cheap-looking AI visuals
-
-SLIDE 1 — HIGHEST PRIORITY:
-
-Make the first slide the strongest slide in the carousel.
-
-It should be scroll-stopping, clean and professional.
-
-Use:
-- one large bold Hindi headline
-- one short hook line
-- each selected story as one concise teaser line
-- strong visual hierarchy
-- premium alignment
-- realistic floating tech/product cards or UI mockup tiles
-- enough whitespace
-
-Do not overcrowd the cover.
-
-The cover should feel like a premium modern tech poster made for a high-quality Indian tech page.
-
-STORY SLIDES:
-
-Keep one story per slide.
-
-Explain clearly in Hindi:
-- क्या हुआ?
-- नया क्या है?
-- क्यों जरूरी है?
-- किसके लिए useful है?
-- practical takeaway क्या है?
-
-For AI/software tools also include:
-- tool क्या करता है
-- किसके लिए useful है
-- verified free/free-tier availability
-- official website
-- simple setup/use steps
-- best practical use case
-
-Keep text concise enough for comfortable mobile reading.
-
-DATE + SOURCE:
-
-Put the correct current Asia/Kolkata date in a small readable footer on every slide.
-
-Add a truthful source label where appropriate.
-
-FINAL SLIDE:
-
-Use a clean Hindi CTA:
-- पोस्ट सेव करें
-- tech दोस्त के साथ शेयर करें
-- @webkitti को follow करें
-
-CAPTION:
-
-Write one complete Hindi Instagram caption with:
-- strong factual hook
-- current date
-- concise story summaries
-- useful context
-- source/official links where useful
-- save/share/follow CTA
-- relevant hashtags
-
-Do not use exaggerated clickbait.
-
-MEDIA HANDLING:
-
-Do not intentionally create unnecessary duplicate media files.
-Do not create archive copies.
-Keep only the minimum temporary media required for publishing.
-Avoid extra ChatGPT Library clutter whenever possible.
-
-PUBLISHING RULES:
-
-Publish ONLY through my connected Metricool account.
-
-Metricool brand:
-webkitti
-
-Brand ID:
-7005701
-
-Do not use Composio.
-Do not use another direct Instagram publishing service.
-Do not create a second fallback publication.
-
-Create one Instagram post/carousel with all media in the correct order.
-
-Use:
-- autoPublish: true
-- isAiGenerated: true when supported
-
-Publish as soon as the content is ready.
-
-If Metricool requires a future publication timestamp, use the earliest valid future time available in the Metricool brand timezone.
-
-MANDATORY OUTCOME FOR EVERY VALID JOB:
-
-Every non-test Gmail trigger must finish in exactly one of these ways:
-- one Metricool Instagram post/carousel is created and its status is verified
-- or an exact failure/error is reported
-
-Never stop silently after research, caption writing, media generation, or media upload.
-
-Do not skip the entire job only because some recent posts used similar topics.
-Choose different fresh stories instead.
-If needed, expand research from 6–12 hours to 24 hours, then up to 48 hours rather than abandoning the job.
-
-Before submitting, check recent Metricool posts and avoid creating a duplicate for the same unique Gmail event.
-
-If one media-generation or upload step fails, retry that failed media step once.
-
-Music/audio must never block carousel publishing. If carousel audio is unsupported, publish without music.
-
-After submitting to Metricool, verify that a Metricool post ID/status exists.
-
-If Metricool returns PENDING or PUBLISHING:
-- do not submit another copy
-- report the exact current status
-
-If Metricool or Instagram returns ERROR or FAILED:
-- report the exact error
-- stop
-- do not use another publishing service
-
-If no Metricool record is created, treat that as a failure and report it explicitly.
-
-Never claim that the post was published unless Metricool confirms successful publication.</pre>
-
-                <p class="muted">
-                    After this one-time setup, create your schedules normally on this website.
-                    Each schedule email carries its own PROMPT, while this single Work trigger handles
-                    research, premium carousel creation and Metricool publishing.
-                </p>
-            </div>
-        </section>
-
-        <section class="card">
-            <div class="section-title">
-                <div>
-                    <div class="eyebrow">Automation queue</div>
-                    <h2>Your schedules</h2>
-                </div>
-            </div>
-
-            <?php $schedules = all_schedules(); ?>
-            <?php if (!$schedules): ?>
-                <div class="empty">No schedules yet.</div>
-            <?php else: ?>
-                <div class="schedule-list">
-                    <?php foreach ($schedules as $schedule): ?>
-                        <article class="schedule <?= (int)$schedule['enabled'] === 1 ? '' : 'disabled' ?>">
-                            <div class="schedule-main">
-                                <div class="schedule-topline">
-                                    <strong><?= e($schedule['name']) ?></strong>
-                                    <span class="badge <?= (int)$schedule['enabled'] === 1 ? 'on' : 'off' ?>"><?= (int)$schedule['enabled'] === 1 ? 'Enabled' : 'Paused' ?></span>
-                                </div>
-                                <p><?= e(app_excerpt($schedule['prompt'], 180)) ?></p>
-                                <div class="meta">
-                                    <span>Trigger <?= e($schedule['trigger_time']) ?></span>
-                                    <span>Publish: immediately after creation</span>
-                                    <span><?= e(implode(' · ', array_map(fn($d) => $dayNames[$d], schedule_days($schedule['weekdays'])))) ?></span>
-                                </div>
-                            </div>
-                            <div class="actions">
-                                <form method="post">
-                                    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-                                    <input type="hidden" name="action" value="run">
-                                    <input type="hidden" name="id" value="<?= (int)$schedule['id'] ?>">
-                                    <button class="button small primary" type="submit">Run now</button>
-                                </form>
-                                <a class="button small ghost" href="?edit=<?= (int)$schedule['id'] ?>">Edit</a>
-                                <form method="post">
-                                    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-                                    <input type="hidden" name="action" value="toggle">
-                                    <input type="hidden" name="id" value="<?= (int)$schedule['id'] ?>">
-                                    <button class="button small ghost" type="submit"><?= (int)$schedule['enabled'] === 1 ? 'Pause' : 'Enable' ?></button>
-                                </form>
-                                <form method="post" onsubmit="return confirm('Delete this schedule?');">
-                                    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-                                    <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="id" value="<?= (int)$schedule['id'] ?>">
-                                    <button class="button small danger-button" type="submit">Delete</button>
-                                </form>
-                            </div>
-                        </article>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </section>
-
-        <section class="card">
-            <div class="eyebrow">Delivery log</div>
-            <h2>Recent runs</h2>
-            <?php $logs = recent_logs(); ?>
-            <?php if (!$logs): ?>
-                <div class="empty">No runs yet.</div>
-            <?php else: ?>
-                <div class="log-list">
-                    <?php foreach ($logs as $log): ?>
-                        <div class="log-row">
-                            <span class="status-dot <?= e($log['status']) ?>"></span>
-                            <div>
-                                <strong><?= e($log['schedule_name'] ?? 'System') ?></strong>
-                                <p><?= e($log['message']) ?></p>
-                            </div>
-                            <time><?= e((new DateTimeImmutable($log['created_at']))->format('d M, H:i')) ?></time>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </section>
-    <?php endif; ?>
+        <?php endif; ?>
+    </section>
 </div>
-</body>
-</html>
+</body></html>
+<?php exit; endif;
+
+$pageTitle = 'Dashboard · ' . app_config()['app_name'];
+require __DIR__ . '/instagram-bootstrap.php';
+$igStatus = (new InstagramClient())->connectionStatus();
+$schedules = all_schedules();
+$activeSchedules = count(array_filter($schedules, fn(array $s): bool => (int)$s['enabled'] === 1));
+$lastCheck = hub_last_scheduler_check();
+$checks = hub_config_status();
+$readyCount = count(array_filter($checks));
+$totalChecks = count($checks);
+require __DIR__ . '/partials/header.php';
+?>
+<?php if ($notice = hub_take_flash('notice')): ?><div class="alert success"><?= e($notice) ?></div><?php endif; ?>
+<?php if ($err = hub_take_flash('error')): ?><div class="alert error"><?= e($err) ?></div><?php endif; ?>
+
+<section class="grid stats hub-stats">
+    <div class="card stat"><span>Active schedules</span><strong><?= $activeSchedules ?></strong><small>Website controls timing</small></div>
+    <div class="card stat"><span>Scheduler heartbeat</span><strong><?= $lastCheck ? e((new DateTimeImmutable($lastCheck))->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M, H:i')) : 'Not seen' ?></strong><small>IST</small></div>
+    <div class="card stat"><span>Instagram</span><strong><?= !empty($igStatus['connected']) && !empty($igStatus['healthy']) ? '@' . e((string)($igStatus['username'] ?? 'connected')) : 'Not ready' ?></strong><small>Direct MCP account</small></div>
+    <div class="card stat"><span>Publisher mode</span><strong><?= app_config()['publisher_mode'] === 'instagram_mcp' ? 'Direct MCP' : 'Metricool' ?></strong><small>Set in config.php</small></div>
+</section>
+
+<section class="grid dashboard-grid">
+    <div class="card">
+        <div class="eyebrow">Main flow</div>
+        <h2>Automation pipeline</h2>
+        <div class="flowline">
+            <span>Website schedule</span><b>→</b><span>Gmail</span><b>→</b><span>ChatGPT Work</span><b>→</b>
+            <span><?= app_config()['publisher_mode'] === 'instagram_mcp' ? 'Direct Instagram MCP' : 'Metricool' ?></span><b>→</b><span>Instagram</span>
+        </div>
+        <p class="muted">Use the menu above for schedules, Work trigger instructions, Instagram account connection, MCP endpoint, logs, and full setup checks.</p>
+        <div class="quick-actions">
+            <a class="button primary" href="schedules.php">Manage schedules</a>
+            <a class="button secondary" href="setup.php">Open setup checklist</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="eyebrow">Setup health</div>
+        <h2><?= $readyCount ?>/<?= $totalChecks ?> checks ready</h2>
+        <div class="progress"><span style="width:<?= (int)round(($readyCount / max(1, $totalChecks)) * 100) ?>%"></span></div>
+        <ul class="check-list compact">
+            <?php foreach ($checks as $label => $ok): ?>
+                <li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✓' : '!' ?></span><?= e($label) ?></li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
+</section>
+
+<section class="grid dashboard-grid">
+    <div class="card">
+        <div class="eyebrow">Direct Instagram</div>
+        <h2><?= !empty($igStatus['connected']) && !empty($igStatus['healthy']) ? 'Connected and healthy' : 'Connection not ready' ?></h2>
+        <?php if (!empty($igStatus['connected']) && !empty($igStatus['healthy'])): ?>
+            <p>Account: <strong>@<?= e((string)($igStatus['username'] ?? '')) ?></strong></p>
+            <p class="muted">Token expiry: <?= e((string)($igStatus['expires_at'] ?? 'unknown')) ?></p>
+        <?php else: ?>
+            <p class="muted"><?= e((string)($igStatus['error'] ?? 'Open Instagram setup and connect your Professional account.')) ?></p>
+        <?php endif; ?>
+        <a class="text-link" href="instagram.php">Open Instagram setup →</a>
+    </div>
+
+    <div class="card">
+        <div class="eyebrow">Safe cutover</div>
+        <h2>Keep Metricool until direct test passes</h2>
+        <p class="muted">Deploy this folder, connect Instagram, connect the MCP to ChatGPT, publish one controlled direct test, verify the final Instagram URL, then switch <code>publisher_mode</code> to <code>instagram_mcp</code> and update the Work trigger.</p>
+        <a class="text-link" href="mcp-status.php">View MCP endpoint →</a>
+    </div>
+</section>
+<?php require __DIR__ . '/partials/footer.php'; ?>
