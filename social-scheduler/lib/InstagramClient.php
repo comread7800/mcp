@@ -127,9 +127,17 @@ final class InstagramClient
                 $this->store->saveConnection($connection);
             }
 
+            // A basic /me lookup proves identity access only. Verify that the token
+            // can also reach the content-publishing endpoint so the dashboard does
+            // not report "healthy" for a token that cannot publish.
+            $this->request('GET', '/' . rawurlencode($resolvedUserId) . '/content_publishing_limit', [
+                'fields' => 'quota_usage,config',
+            ], (string)$connection['access_token']);
+
             return [
                 'connected' => true,
                 'healthy' => true,
+                'publish_ready' => true,
                 'instagram_user_id' => $resolvedUserId,
                 'username' => (string)($profile['username'] ?? $connection['username'] ?? ''),
                 'expires_at' => $connection['expires_at'] ?? null,
@@ -177,7 +185,15 @@ final class InstagramClient
 
         $this->assertPublicHttpsMediaUrl($imageUrl);
         $this->validateCaption($caption);
-        $this->store->savePublication($jobId, ['status' => 'in_progress', 'type' => 'image', 'updated_at' => gmdate('c')]);
+        $now = gmdate('c');
+        $this->store->savePublication($jobId, [
+            'job_id' => $jobId,
+            'status' => 'in_progress',
+            'type' => 'image',
+            'attempt_started_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $this->store->log('instagram_publish_started', ['job_id' => $jobId, 'type' => 'image']);
 
         try {
             [$connection, $token] = $this->connectionAndToken();
@@ -212,11 +228,31 @@ final class InstagramClient
             $this->assertPublicHttpsMediaUrl((string)$item['url']);
         }
 
-        $this->store->savePublication($jobId, ['status' => 'in_progress', 'type' => 'carousel', 'updated_at' => gmdate('c')]);
+        $now = gmdate('c');
+        $this->store->savePublication($jobId, [
+            'job_id' => $jobId,
+            'status' => 'in_progress',
+            'type' => 'carousel',
+            'slide_count' => count($items),
+            'attempt_started_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $this->store->log('instagram_publish_started', [
+            'job_id' => $jobId,
+            'type' => 'carousel',
+            'slide_count' => count($items),
+        ]);
         try {
             [$connection, $token] = $this->connectionAndToken();
             $children = [];
-            foreach ($items as $item) {
+            $total = count($items);
+            foreach ($items as $index => $item) {
+                $position = $index + 1;
+                $this->store->log('instagram_carousel_child_creating', [
+                    'job_id' => $jobId,
+                    'position' => $position,
+                    'total' => $total,
+                ]);
                 $params = [
                     'image_url' => (string)$item['url'],
                     'is_carousel_item' => 'true',
@@ -225,16 +261,31 @@ final class InstagramClient
                     $params['alt_text'] = mb_substr(trim((string)$item['alt_text']), 0, 1000);
                 }
                 $child = $this->createContainer($connection, $token, $params);
-                $this->waitForContainer($child, $token, 45);
+                $childStatus = $this->waitForContainer($child, $token, 60);
                 $children[] = $child;
+                $this->store->log('instagram_carousel_child_ready', [
+                    'job_id' => $jobId,
+                    'position' => $position,
+                    'container_id' => $child,
+                    'status_code' => (string)($childStatus['status_code'] ?? ''),
+                ]);
             }
 
+            $this->store->log('instagram_carousel_parent_creating', [
+                'job_id' => $jobId,
+                'children' => $children,
+            ]);
             $parent = $this->createContainer($connection, $token, [
                 'media_type' => 'CAROUSEL',
                 'children' => implode(',', $children),
                 'caption' => $caption,
             ]);
-            $this->waitForContainer($parent, $token, 75);
+            $parentStatus = $this->waitForContainer($parent, $token, 120);
+            $this->store->log('instagram_carousel_parent_ready', [
+                'job_id' => $jobId,
+                'container_id' => $parent,
+                'status_code' => (string)($parentStatus['status_code'] ?? ''),
+            ]);
             $result = $this->publishContainer($connection, $token, $parent);
             $result['child_container_ids'] = $children;
             $result['parent_container_id'] = $parent;
@@ -360,26 +411,49 @@ final class InstagramClient
     private function finalizePublication(string $jobId, string $type, array $result, string $token): array
     {
         $mediaId = (string)$result['media_id'];
-        $details = [];
-        try {
-            $details = $this->request('GET', '/' . rawurlencode($mediaId), [
-                'fields' => 'id,permalink,timestamp,media_type',
-            ], $token);
-        } catch (Throwable) {
-            // Publication already succeeded; permalink lookup is best-effort.
-        }
 
+        // Persist the confirmed media ID immediately after /media_publish succeeds.
+        // This closes the duplicate-post window if the optional permalink lookup or
+        // PHP process dies after Meta has already published the post.
         $final = [
             'job_id' => $jobId,
             'status' => 'published',
             'type' => $type,
             'media_id' => $mediaId,
-            'permalink' => $details['permalink'] ?? null,
-            'timestamp' => $details['timestamp'] ?? null,
+            'permalink' => null,
+            'timestamp' => null,
             'updated_at' => gmdate('c'),
         ] + $result;
         $this->store->savePublication($jobId, $final);
-        $this->store->log('instagram_published', ['job_id' => $jobId, 'type' => $type, 'media_id' => $mediaId, 'permalink' => $final['permalink']]);
+        $this->store->log('instagram_publish_confirmed', [
+            'job_id' => $jobId,
+            'type' => $type,
+            'media_id' => $mediaId,
+        ]);
+
+        try {
+            $details = $this->request('GET', '/' . rawurlencode($mediaId), [
+                'fields' => 'id,permalink,timestamp,media_type',
+            ], $token);
+            $final['permalink'] = $details['permalink'] ?? null;
+            $final['timestamp'] = $details['timestamp'] ?? null;
+            $final['updated_at'] = gmdate('c');
+            $this->store->savePublication($jobId, $final);
+        } catch (Throwable $e) {
+            // Publication already succeeded; permalink lookup is best-effort.
+            $this->store->log('instagram_permalink_lookup_failed', [
+                'job_id' => $jobId,
+                'media_id' => $mediaId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $this->store->log('instagram_published', [
+            'job_id' => $jobId,
+            'type' => $type,
+            'media_id' => $mediaId,
+            'permalink' => $final['permalink'],
+        ]);
         return $final;
     }
 
@@ -402,11 +476,31 @@ final class InstagramClient
         if (!$existing) {
             return null;
         }
-        $status = (string)($existing['status'] ?? '');
-        if (in_array($status, ['published', 'in_progress'], true)) {
+
+        $status = strtolower((string)($existing['status'] ?? ''));
+        if ($status === 'published') {
             $existing['idempotent_replay'] = true;
             return $existing;
         }
+
+        if ($status === 'in_progress') {
+            $updatedAt = strtotime((string)($existing['updated_at'] ?? ''));
+            $age = $updatedAt ? max(0, time() - $updatedAt) : PHP_INT_MAX;
+
+            // A fresh in-progress record can be another live request. Defer rather
+            // than creating duplicate containers. If it is stale, recover it.
+            if ($age < 180) {
+                $existing['idempotent_replay'] = true;
+                $existing['retry_after_seconds'] = 180 - $age;
+                return $existing;
+            }
+
+            $this->store->log('instagram_recover_stale_in_progress', [
+                'job_id' => $jobId,
+                'age_seconds' => $age,
+            ]);
+        }
+
         return null;
     }
 
@@ -485,12 +579,18 @@ final class InstagramClient
         }
         if ($status < 200 || $status >= 300 || isset($data['error'])) {
             $error = is_array($data['error'] ?? null) ? $data['error'] : [];
-            $parts = [(string)($error['message'] ?? ('HTTP ' . $status))];
+            $parts = [(string)($error['message'] ?? ('HTTP ' . $status)), 'http=' . $status];
+            if (isset($error['type'])) {
+                $parts[] = 'type=' . $error['type'];
+            }
             if (isset($error['code'])) {
                 $parts[] = 'code=' . $error['code'];
             }
             if (isset($error['error_subcode'])) {
                 $parts[] = 'subcode=' . $error['error_subcode'];
+            }
+            if (isset($error['fbtrace_id'])) {
+                $parts[] = 'fbtrace_id=' . $error['fbtrace_id'];
             }
             throw new RuntimeException('Instagram API error: ' . implode(' | ', $parts));
         }
