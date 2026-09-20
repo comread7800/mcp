@@ -29,6 +29,30 @@ try {
         }
     }
 
+    $mediaCleanup = ['deleted' => 0, 'kept' => 0, 'errors' => 0];
+    try {
+        $mediaCleanup = (new MediaStager())->cleanupExpired((int)$config['media_retention_seconds']);
+        if ((int)($mediaCleanup['deleted'] ?? 0) > 0) {
+            add_log(
+                null,
+                'MEDIA-CLEANUP',
+                'sent',
+                'Deleted ' . (int)$mediaCleanup['deleted'] . ' staged Instagram image(s) older than 24 hours.'
+            );
+        }
+        if ((int)($mediaCleanup['errors'] ?? 0) > 0) {
+            add_log(
+                null,
+                'MEDIA-CLEANUP',
+                'failed',
+                'Unable to delete ' . (int)$mediaCleanup['errors'] . ' expired staged image(s).'
+            );
+        }
+    } catch (Throwable $cleanupError) {
+        $mediaCleanup = ['deleted' => 0, 'kept' => 0, 'errors' => 1, 'error' => $cleanupError->getMessage()];
+        add_log(null, 'MEDIA-CLEANUP', 'failed', 'Media cleanup error: ' . $cleanupError->getMessage());
+    }
+
     $scheduleResults = process_due_schedules();
 
     $bridgeResult = ['enabled' => false, 'processed' => []];
@@ -57,6 +81,7 @@ try {
         'ok' => !$bridgeFailed,
         'checkedAt' => app_now()->format(DateTimeInterface::ATOM),
         'publisherMode' => publisher_mode(),
+        'mediaCleanup' => $mediaCleanup,
         'scheduledJobs' => $scheduleResults,
         'resultBridge' => $bridgeResult,
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
