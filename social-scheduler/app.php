@@ -48,6 +48,8 @@ function app_config(): array
     $config['allowed_origins'] = is_array($config['allowed_origins'] ?? null) ? $config['allowed_origins'] : [];
     $config['media_path'] = (string)($config['media_path'] ?? (__DIR__ . '/media'));
     $config['media_max_bytes'] = (int)($config['media_max_bytes'] ?? (12 * 1024 * 1024));
+    $config['media_jpeg_quality'] = max(92, min(100, (int)($config['media_jpeg_quality'] ?? 96)));
+    $config['media_retention_seconds'] = max(3600, (int)($config['media_retention_seconds'] ?? 86400));
     $config['result_subject_tag'] = trim((string)($config['result_subject_tag'] ?? 'SOCIAL_READY')) ?: 'SOCIAL_READY';
     $config['result_email_to'] = trim((string)($config['result_email_to'] ?? '')) ?: $config['smtp_username'];
     $config['result_email_from'] = trim((string)($config['result_email_from'] ?? '')) ?: $config['mail_to'];
@@ -436,7 +438,7 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
             . "TRIGGERED_AT: " . $triggeredAt->format('Y-m-d H:i:s T') . "\n"
             . "SLIDE_COUNT: <number of final attached slides>\n"
             . "CAPTION_BEGIN\n<the complete final Instagram caption>\nCAPTION_END\n"
-            . "7. Attach ONLY the final carousel images to that Gmail result email. Name them slide-01.jpg, slide-02.jpg, and so on in exact Instagram order. Use 1080x1350 (4:5) whenever possible. Do not attach drafts, references, source screenshots, ZIPs, PDFs, or duplicate versions.\n"
+            . "7. Attach ONLY the final carousel images to that Gmail result email. Name them slide-01.jpg, slide-02.jpg, and so on in exact Instagram order. Use EXACT 1080x1350 (4:5) JPEG whenever possible, keep the highest available image quality, and do not intentionally downscale or heavily compress the final slides before attaching them. Do not attach drafts, references, source screenshots, ZIPs, PDFs, or duplicate versions.\n"
             . "8. Gmail delivery of the [" . $config['result_subject_tag'] . "] result email is the required completion step. If sending the result email fails, report the exact Gmail error and do not claim completion.\n"
             . "9. After the result email is sent successfully, stop. The website cron will read that mailbox and publish the attachments directly through Meta Instagram API.\n";
     } elseif ($mode === 'instagram_mcp') {
