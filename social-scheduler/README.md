@@ -21,7 +21,7 @@ Metricool and the custom ChatGPT MCP route remain available as fallbacks, but th
 
 - `index.php` — dashboard
 - `schedules.php` — create/edit/run schedules
-- `trigger.php` — exact Gmail-event / ChatGPT Work instruction
+- `trigger.php` — exact Gmail-event / ChatGPT Work instruction + editable global creative direction
 - `instagram.php` — Meta/Instagram account connection + controlled direct test
 - `bridge.php` — final Auto Bridge status, mailbox test, activation, manual inbox check
 - `mcp-status.php` — legacy custom MCP status
@@ -125,3 +125,14 @@ If a result job fails, it is retried up to five processing attempts and the exac
 - Images that must be converted are encoded with the configured high-quality JPEG setting (default 96).
 - Staged public images are retained for 24 hours so Meta has a stable fetch window.
 - Cron removes only generated staged files matching the random media filename pattern after the retention period.
+
+
+## Editable global trigger instruction
+
+The dashboard now includes **Change Trigger Instruction** on both Dashboard and Schedules.
+
+The saved instruction is stored in the existing private state file and is inserted into every future trigger email as `GLOBAL TRIGGER INSTRUCTION`. This lets you change visual/creative direction without editing PHP or rebuilding the ChatGPT Work event trigger.
+
+The built-in default uses the WebKitti premium creator-studio visual direction: bright white/ice-blue scene, bold navy/electric-blue hierarchy, WebKitti branding, realistic topic-relevant props, original polished 3D creator/product visuals, strong cover slide, mobile-readable cards, exact 1080x1350 output when possible, and high-quality final JPEGs.
+
+The final publishing route remains protected: in Email Bridge mode the website still requires the structured `[SOCIAL_READY]` Gmail result and publishes through Meta API even if an older schedule prompt still mentions Metricool.
