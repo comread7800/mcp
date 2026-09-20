@@ -62,6 +62,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             hub_set_flash('Instagram connection removed from this server.');
         }
 
+        if ($action === 'manual_token') {
+            $token = trim((string)($_POST['access_token'] ?? ''));
+            $connected = $client->connectFromAccessToken($token);
+            hub_set_flash('Instagram token verified and saved for @' . ($connected['username'] ?: $connected['instagram_user_id']) . '.');
+        }
+
         if ($action === 'direct_test') {
             if (($_POST['confirm_public'] ?? '') !== 'yes') {
                 throw new RuntimeException('Confirm that this test will create a public Instagram post.');
@@ -96,8 +102,8 @@ require __DIR__ . '/partials/header.php';
         <?php if (!empty($status['connected']) && !empty($status['healthy'])): ?>
             <p class="statusline"><span class="status-badge ready">Connected</span><strong>@<?= e((string)($status['username'] ?? '')) ?></strong></p>
             <div class="meta-card"><span>Professional account ID</span><strong><?= e((string)($status['instagram_user_id'] ?? '')) ?></strong></div>
-            <div class="meta-card"><span>Media count</span><strong><?= e((string)($status['media_count'] ?? '—')) ?></strong></div>
-            <div class="meta-card"><span>Token expiry</span><strong><?= e((string)($status['expires_at'] ?? 'unknown')) ?></strong></div>
+            <div class="meta-card"><span>Token source</span><strong><?= e((string)($status['token_source'] ?? 'oauth')) ?></strong></div>
+            <div class="meta-card"><span>Token expiry</span><strong><?= e((string)($status['expires_at'] ?? 'Not reported')) ?></strong></div>
             <form method="post" style="margin-top:16px" onsubmit="return confirm('Remove the Instagram token from this server?');">
                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                 <input type="hidden" name="action" value="disconnect">
@@ -105,7 +111,7 @@ require __DIR__ . '/partials/header.php';
             </form>
         <?php else: ?>
             <p class="statusline"><span class="status-badge warn">Not ready</span></p>
-            <?php if (!empty($status['error'])): ?><p class="muted"><?= e((string)$status['error']) ?></p><?php endif; ?>
+            <?php if (!empty($status['error'])): ?><div class="alert error"><?= e((string)$status['error']) ?></div><?php endif; ?>
             <a class="button primary" href="?action=oauth_connect&amp;csrf=<?= urlencode(csrf_token()) ?>">Connect Instagram</a>
         <?php endif; ?>
     </div>
@@ -118,6 +124,20 @@ require __DIR__ . '/partials/header.php';
         <div class="meta-card"><span>Redirect URI</span><strong class="break"><?= e((string)$config['instagram_redirect_uri']) ?></strong></div>
         <p class="muted">Use Instagram API with Instagram Login and a Professional Business/Creator account.</p>
     </div>
+</section>
+
+<section class="card">
+    <div class="eyebrow">Connection fallback</div>
+    <h2>Use Meta generated access token</h2>
+    <p class="muted">If Instagram OAuth returns to this website but the account still shows Not ready, paste the access token generated in Meta Developers here. The token is validated against Instagram <code>/me</code>, stored only in the private server storage, and is never shown back on the page.</p>
+    <form method="post" class="stack" autocomplete="off">
+        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="action" value="manual_token">
+        <label>Instagram access token
+            <input type="password" name="access_token" required autocomplete="new-password" placeholder="Paste token from Meta Developers → Generate access tokens">
+        </label>
+        <button class="button secondary" type="submit">Verify & connect token</button>
+    </form>
 </section>
 
 <section class="card">

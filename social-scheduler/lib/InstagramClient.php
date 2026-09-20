@@ -48,9 +48,48 @@ final class InstagramClient
             'issued_at' => gmdate('c', $now),
             'expires_at' => gmdate('c', $now + $expiresIn),
             'connected_at' => gmdate('c', $now),
+            'token_source' => 'oauth',
         ];
         $this->store->saveConnection($connection);
         $this->store->log('instagram_connected', ['instagram_user_id' => $userId, 'username' => $connection['username']]);
+        return $this->safeConnection($connection);
+    }
+
+    public function connectFromAccessToken(string $token): array
+    {
+        $token = trim($token);
+        if ($token === '') {
+            throw new InvalidArgumentException('Instagram access token is required.');
+        }
+
+        $profile = $this->request('GET', '/me', [
+            'fields' => 'user_id,username',
+        ], $token);
+
+        $userId = (string)($profile['user_id'] ?? $profile['id'] ?? '');
+        if ($userId === '') {
+            throw new RuntimeException('Instagram token is valid but /me did not return a professional account ID.');
+        }
+
+        $now = time();
+        $connection = [
+            'instagram_user_id' => $userId,
+            'username' => (string)($profile['username'] ?? ''),
+            'access_token' => $token,
+            'issued_at' => gmdate('c', $now),
+            // Dashboard-generated tokens may not expose expiry through this flow.
+            // Leave expiry unknown and rely on explicit API health checks/refresh when available.
+            'expires_at' => null,
+            'connected_at' => gmdate('c', $now),
+            'token_source' => 'manual_dashboard_token',
+        ];
+
+        $this->store->saveConnection($connection);
+        $this->store->log('instagram_connected_manual', [
+            'instagram_user_id' => $userId,
+            'username' => $connection['username'],
+        ]);
+
         return $this->safeConnection($connection);
     }
 
@@ -67,18 +106,33 @@ final class InstagramClient
         if (!$connection) {
             return ['connected' => false];
         }
+
         try {
             $connection = $this->ensureFreshToken($connection);
-            $profile = $this->request('GET', '/' . rawurlencode((string)$connection['instagram_user_id']), [
-                'fields' => 'id,username,media_count',
+            $profile = $this->request('GET', '/me', [
+                'fields' => 'user_id,username',
             ], (string)$connection['access_token']);
+
+            $resolvedUserId = (string)($profile['user_id'] ?? $profile['id'] ?? $connection['instagram_user_id'] ?? '');
+            if ($resolvedUserId === '') {
+                throw new RuntimeException('Instagram profile check did not return a professional account ID.');
+            }
+
+            // Keep stored identity in sync with Meta's current /me response.
+            if ($resolvedUserId !== (string)($connection['instagram_user_id'] ?? '')
+                || (string)($profile['username'] ?? '') !== (string)($connection['username'] ?? '')) {
+                $connection['instagram_user_id'] = $resolvedUserId;
+                $connection['username'] = (string)($profile['username'] ?? $connection['username'] ?? '');
+                $this->store->saveConnection($connection);
+            }
+
             return [
                 'connected' => true,
                 'healthy' => true,
-                'instagram_user_id' => (string)$connection['instagram_user_id'],
+                'instagram_user_id' => $resolvedUserId,
                 'username' => (string)($profile['username'] ?? $connection['username'] ?? ''),
-                'media_count' => $profile['media_count'] ?? null,
                 'expires_at' => $connection['expires_at'] ?? null,
+                'token_source' => $connection['token_source'] ?? 'oauth',
                 'graph_api_version' => (string)$this->config['graph_api_version'],
             ];
         } catch (Throwable $e) {
@@ -88,6 +142,7 @@ final class InstagramClient
                 'instagram_user_id' => (string)($connection['instagram_user_id'] ?? ''),
                 'username' => (string)($connection['username'] ?? ''),
                 'expires_at' => $connection['expires_at'] ?? null,
+                'token_source' => $connection['token_source'] ?? 'oauth',
                 'error' => $e->getMessage(),
             ];
         }
