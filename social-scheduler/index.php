@@ -348,7 +348,25 @@ Publish as soon as the content is ready.
 
 If Metricool requires a future publication timestamp, use the earliest valid future time available in the Metricool brand timezone.
 
-Before submitting, check recent Metricool posts and avoid creating an obvious duplicate for the same Gmail event.
+MANDATORY OUTCOME FOR EVERY VALID JOB:
+
+Every non-test Gmail trigger must finish in exactly one of these ways:
+- one Metricool Instagram post/carousel is created and its status is verified
+- or an exact failure/error is reported
+
+Never stop silently after research, caption writing, media generation, or media upload.
+
+Do not skip the entire job only because some recent posts used similar topics.
+Choose different fresh stories instead.
+If needed, expand research from 6–12 hours to 24 hours, then up to 48 hours rather than abandoning the job.
+
+Before submitting, check recent Metricool posts and avoid creating a duplicate for the same unique Gmail event.
+
+If one media-generation or upload step fails, retry that failed media step once.
+
+Music/audio must never block carousel publishing. If carousel audio is unsupported, publish without music.
+
+After submitting to Metricool, verify that a Metricool post ID/status exists.
 
 If Metricool returns PENDING or PUBLISHING:
 - do not submit another copy
@@ -358,6 +376,8 @@ If Metricool or Instagram returns ERROR or FAILED:
 - report the exact error
 - stop
 - do not use another publishing service
+
+If no Metricool record is created, treat that as a failure and report it explicitly.
 
 Never claim that the post was published unless Metricool confirms successful publication.</pre>
 
