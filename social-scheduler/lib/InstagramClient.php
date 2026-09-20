@@ -291,8 +291,18 @@ final class InstagramClient
 
     private function ensureFreshToken(array $connection): array
     {
-        $expiresAt = isset($connection['expires_at']) ? strtotime((string)$connection['expires_at']) : false;
-        $issuedAt = isset($connection['issued_at']) ? strtotime((string)$connection['issued_at']) : false;
+        $expiresAt = !empty($connection['expires_at']) ? strtotime((string)$connection['expires_at']) : false;
+        $issuedAt = !empty($connection['issued_at']) ? strtotime((string)$connection['issued_at']) : false;
+
+        if (!$expiresAt
+            && ($connection['token_source'] ?? '') === 'manual_dashboard_token'
+            && $issuedAt) {
+            $expiresAt = $issuedAt + 5184000;
+            $connection['expires_at'] = gmdate('c', $expiresAt);
+            $connection['expires_at_estimated'] = true;
+            $this->store->saveConnection($connection);
+        }
+
         if ($expiresAt && $expiresAt - time() < 7 * 86400 && (!$issuedAt || time() - $issuedAt >= 86400)) {
             $refreshed = $this->refreshLongLivedToken((string)$connection['access_token']);
             if (!empty($refreshed['access_token'])) {
