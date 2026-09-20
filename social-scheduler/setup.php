@@ -1,8 +1,9 @@
 <?php
 declare(strict_types=1);
+
 require __DIR__ . '/hub.php';
 hub_require_login();
-require __DIR__ . '/instagram-bootstrap.php';
+require __DIR__ . '/result-bootstrap.php';
 
 $config = app_config();
 $checks = hub_config_status();
@@ -11,19 +12,22 @@ $mediaOk = is_dir((string)$config['media_path']) ? is_writable((string)$config['
 $runtime = [
     'PHP 8.1+' => version_compare(PHP_VERSION, '8.1.0', '>='),
     'cURL extension' => function_exists('curl_init'),
+    'OpenSSL/SSL streams' => extension_loaded('openssl') && in_array('ssl', stream_get_transports(), true),
     'Fileinfo extension' => class_exists('finfo'),
-    'GD image extension (recommended)' => extension_loaded('gd'),
+    'GD image extension' => extension_loaded('gd'),
     'Storage writable' => $storageOk,
     'Media writable' => $mediaOk,
 ];
 $cronUrl = rtrim((string)$config['public_base_url'], '/') . '/cron.php?key=YOUR_CRON_SECRET';
+$mode = publisher_mode();
+$igStatus = (new InstagramClient())->connectionStatus();
 $pageTitle = 'Setup · ' . $config['app_name'];
 require __DIR__ . '/partials/header.php';
 ?>
 <section class="grid dashboard-grid">
     <div class="card">
         <div class="eyebrow">Private config</div>
-        <h2>config.php checks</h2>
+        <h2>Configuration checks</h2>
         <ul class="check-list">
             <?php foreach ($checks as $label => $ok): ?><li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✓' : '!' ?></span><?= e($label) ?></li><?php endforeach; ?>
         </ul>
@@ -34,36 +38,44 @@ require __DIR__ . '/partials/header.php';
         <ul class="check-list">
             <?php foreach ($runtime as $label => $ok): ?><li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✓' : '!' ?></span><?= e($label) ?></li><?php endforeach; ?>
         </ul>
-        <p class="muted">GD is recommended for converting PNG/WEBP generated images into Instagram-safe JPEG. Existing JPEG media can still work without GD.</p>
+        <p class="muted">GD is used to normalize result attachments to 1080x1350 when needed. OpenSSL streams are used to read the Gmail result inbox over IMAP without requiring the PHP IMAP extension.</p>
     </div>
 </section>
 
 <section class="card">
-    <div class="eyebrow">Deploy once</div>
-    <h2>Single-folder setup order</h2>
+    <div class="eyebrow">Final one-time setup</div>
+    <h2>After this, daily posting is automatic</h2>
     <ol class="setup-steps numbered">
-        <li><strong>Upload this complete <code>social-scheduler</code> folder.</strong> Keep your existing private <code>config.php</code> and <code>storage/</code> if you are replacing the old folder.</li>
-        <li><strong>Update config.php.</strong> Add the new Instagram/MCP keys shown in <code>config.example.php</code>. Never upload your real config.php to public GitHub.</li>
-        <li><strong>Keep the website cron.</strong> It should call <code>cron.php</code> once per minute. Existing schedules remain in <code>storage/prompt-bridge.json</code>.</li>
-        <li><strong>Work Trigger page.</strong> Keep one Gmail event trigger in ChatGPT Work. The website owns all schedule times.</li>
-        <li><strong>Instagram page.</strong> Configure Meta App + OAuth and connect @webkitti.</li>
-        <li><strong>MCP page.</strong> Connect this site's <code>mcp.php</code> endpoint to ChatGPT using the MCP API key.</li>
-        <li><strong>Run a controlled direct test.</strong> Verify a real Instagram permalink comes back.</li>
-        <li><strong>Only then cut over.</strong> Change <code>publisher_mode</code> from <code>metricool</code> to <code>instagram_mcp</code> and replace the Work instruction using the version shown on the Work Trigger page.</li>
+        <li><strong>Deploy this complete <code>social-scheduler</code> folder.</strong> Keep your existing private <code>config.php</code> and <code>storage/</code>.</li>
+        <li><strong>Keep the current Gmail SMTP/App Password.</strong> By default the result reader reuses the same Gmail username and App Password over <code>imap.gmail.com:993</code>.</li>
+        <li><strong>Keep the Hostinger cron running once per minute.</strong> The same <code>cron.php</code> now does two jobs: sends due website schedules and checks completed ChatGPT result emails.</li>
+        <li><strong>Instagram must show connected/healthy.</strong> Your successful direct Meta API test already proves the publishing path.</li>
+        <li><strong>Open Auto Bridge.</strong> Test the mailbox login, then click <em>Activate Final Auto Mode</em>.</li>
+        <li><strong>Update the single ChatGPT Work Gmail-event instruction once.</strong> Copy the exact Email Bridge instruction from the Work Trigger page. Do not create ChatGPT clock schedules.</li>
+        <li><strong>Run one full end-to-end test.</strong> Use Run now on a schedule. Work should send a <code>[<?= e((string)$config['result_subject_tag']) ?>]</code> email with final slide attachments. The next cron run publishes it directly to Instagram.</li>
     </ol>
 </section>
 
 <section class="grid dashboard-grid">
     <div class="card">
+        <div class="eyebrow">Current final route</div>
+        <h2><?= e(match($mode){'email_bridge'=>'Auto Email Bridge','instagram_mcp'=>'Direct MCP',default=>'Metricool'}) ?></h2>
+        <div class="meta-card"><span>Instagram</span><strong><?= !empty($igStatus['connected']) && !empty($igStatus['healthy']) ? '@' . e((string)($igStatus['username'] ?? 'connected')) . ' · ready' : 'Not ready' ?></strong></div>
+        <div class="meta-card"><span>Result inbox</span><strong><?= e((string)$config['imap_username']) ?></strong></div>
+        <div class="meta-card"><span>Expected result sender</span><strong><?= e((string)$config['result_email_from']) ?></strong></div>
+        <a class="button primary" href="bridge.php">Open Auto Bridge</a>
+    </div>
+    <div class="card">
         <div class="eyebrow">Cron</div>
         <h2>Fallback cron URL pattern</h2>
         <p><code><?= e($cronUrl) ?></code></p>
-        <p class="muted">Use your actual private cron secret. Do not share it in chat or screenshots.</p>
+        <p class="muted">Use your actual private cron secret. Do not share it in chat or screenshots. PHP CLI cron is still preferable when Hostinger provides it.</p>
     </div>
-    <div class="card">
-        <div class="eyebrow">Current mode</div>
-        <h2><?= $config['publisher_mode'] === 'instagram_mcp' ? 'Direct Instagram MCP' : 'Metricool' ?></h2>
-        <p class="muted">This controls the execution rules inserted into every website-generated email job.</p>
-    </div>
+</section>
+
+<section class="card">
+    <div class="eyebrow">What is no longer required</div>
+    <h2>No Metricool and no ChatGPT custom MCP required in final mode</h2>
+    <p class="muted">The final bridge uses Gmail only as the return transport for ChatGPT's completed caption and image attachments. Your website performs the actual Instagram publish with the Meta API connection already stored on the server.</p>
 </section>
 <?php require __DIR__ . '/partials/footer.php'; ?>
