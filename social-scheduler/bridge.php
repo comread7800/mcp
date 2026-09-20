@@ -20,6 +20,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($status['connected']) || empty($status['healthy'])) {
                 throw new RuntimeException('Direct Instagram connection is not healthy yet. Open Instagram page first.');
             }
+
+            $runtimeChecks = [
+                'PHP 8.1+' => version_compare(PHP_VERSION, '8.1.0', '>='),
+                'cURL extension' => function_exists('curl_init'),
+                'OpenSSL/SSL streams' => extension_loaded('openssl') && in_array('ssl', stream_get_transports(), true),
+                'Fileinfo extension' => class_exists('finfo'),
+                'GD image extension' => extension_loaded('gd'),
+                'Storage writable' => is_dir((string)$config['storage_path']) && is_writable((string)$config['storage_path']),
+                'Media writable' => is_dir((string)$config['media_path']) && is_writable((string)$config['media_path']),
+                'Public HTTPS URL' => str_starts_with((string)$config['public_base_url'], 'https://'),
+            ];
+            $missing = array_keys(array_filter($runtimeChecks, static fn(bool $ok): bool => !$ok));
+            if ($missing) {
+                throw new RuntimeException('Server readiness failed: ' . implode(', ', $missing) . '. Open Setup and fix these checks first.');
+            }
+
             (new ResultMailbox())->testConnection();
             set_publisher_mode('email_bridge');
             hub_set_flash('Final auto mode activated: Website → Gmail → ChatGPT Work → Gmail result → Direct Instagram.');
