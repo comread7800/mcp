@@ -36,14 +36,15 @@ final class ResultMailbox
             $this->command($stream, 'LOGIN ' . $this->quote((string)$this->config['imap_username']) . ' ' . $this->quote((string)$this->config['imap_app_password']));
             $this->command($stream, 'SELECT ' . $this->quote((string)$this->config['imap_mailbox']));
             $tag = (string)$this->config['result_subject_tag'];
-            $response = $this->command($stream, 'UID SEARCH SUBJECT ' . $this->quote('[' . $tag . ']'));
+            $response = $this->command($stream, 'UID SEARCH UNSEEN SUBJECT ' . $this->quote('[' . $tag . ']'));
             $uids = $this->parseSearchUids($response);
             if (!$uids) return [];
 
-            rsort($uids, SORT_NUMERIC);
+            // Process oldest unread result first so a busy mailbox cannot starve earlier jobs.
+            sort($uids, SORT_NUMERIC);
             $uids = array_slice($uids, 0, $limit);
             $messages = [];
-            foreach (array_reverse($uids) as $uid) {
+            foreach ($uids as $uid) {
                 $raw = $this->fetchUid($stream, $uid);
                 if ($raw === '') continue;
                 $messages[] = ['uid' => (int)$uid, 'raw' => $raw];
