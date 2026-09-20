@@ -77,9 +77,10 @@ final class InstagramClient
             'username' => (string)($profile['username'] ?? ''),
             'access_token' => $token,
             'issued_at' => gmdate('c', $now),
-            // Dashboard-generated tokens may not expose expiry through this flow.
-            // Leave expiry unknown and rely on explicit API health checks/refresh when available.
-            'expires_at' => null,
+            // App Dashboard tokens do not always expose expiry metadata here.
+            // Track a 60-day refresh window so the server can refresh proactively.
+            'expires_at' => gmdate('c', $now + 5184000),
+            'expires_at_estimated' => true,
             'connected_at' => gmdate('c', $now),
             'token_source' => 'manual_dashboard_token',
         ];
