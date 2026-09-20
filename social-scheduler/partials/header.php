@@ -1,42 +1,82 @@
 <?php
 declare(strict_types=1);
+
 $pageTitle = $pageTitle ?? app_config()['app_name'];
 $currentPage = basename($_SERVER['PHP_SELF'] ?? 'index.php');
+$config = app_config();
+
 $nav = [
-    'index.php' => 'Dashboard',
-    'schedules.php' => 'Schedules',
-    'trigger.php' => 'Work Trigger',
-    'instagram.php' => 'Instagram',
-    'mcp-status.php' => 'MCP',
-    'logs.php' => 'Logs',
-    'setup.php' => 'Setup',
+    'index.php' => ['label' => 'Dashboard', 'short' => 'Home'],
+    'schedules.php' => ['label' => 'Schedules', 'short' => 'Schedules'],
+    'trigger.php' => ['label' => 'Work Trigger', 'short' => 'Trigger'],
+    'instagram.php' => ['label' => 'Instagram', 'short' => 'Instagram'],
+    'mcp-status.php' => ['label' => 'MCP', 'short' => 'MCP'],
+    'logs.php' => ['label' => 'Logs', 'short' => 'Logs'],
+    'setup.php' => ['label' => 'Setup', 'short' => 'Setup'],
 ];
+
+$pageMeta = [
+    'index.php' => ['Dashboard', 'System overview, publisher status and setup health'],
+    'schedules.php' => ['Schedules', 'Create, edit and manually run website-controlled jobs'],
+    'trigger.php' => ['Work Trigger', 'Gmail event bridge and ChatGPT Work instructions'],
+    'instagram.php' => ['Instagram', 'Connect and test the direct Instagram publisher'],
+    'mcp-status.php' => ['MCP', 'Remote MCP endpoint, tools and connection status'],
+    'logs.php' => ['Logs', 'Recent website-to-Gmail trigger activity'],
+    'setup.php' => ['Setup', 'Configuration and server readiness checklist'],
+];
+
+[$currentTitle, $currentDescription] = $pageMeta[$currentPage] ?? ['Automation Hub', 'Webkitti social publishing control panel'];
+$isDirect = $config['publisher_mode'] === 'instagram_mcp';
 ?>
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#ffffff">
     <title><?= e($pageTitle) ?></title>
-    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="assets/app.css?v=20260920-3">
 </head>
 <body>
-<div class="shell">
-    <header class="hub-header">
-        <div class="hub-brand">
-            <div class="eyebrow">Website → Gmail → ChatGPT Work → Publisher</div>
-            <a class="brand-link" href="index.php"><?= e((string)app_config()['app_name']) ?></a>
+<div class="app-shell">
+    <header class="app-header">
+        <div class="header-main">
+            <a class="brand" href="index.php" aria-label="Open dashboard">
+                <span class="brand-mark">W</span>
+                <span class="brand-copy">
+                    <strong><?= e((string)$config['app_name']) ?></strong>
+                    <small>Social Automation Control</small>
+                </span>
+            </a>
+
+            <div class="header-actions">
+                <span class="publisher-status <?= $isDirect ? 'is-direct' : 'is-metricool' ?>">
+                    <span class="status-pulse"></span>
+                    <?= $isDirect ? 'Direct Instagram MCP' : 'Metricool Publisher' ?>
+                </span>
+                <a class="logout-link" href="?logout=1">Log out</a>
+            </div>
         </div>
-        <div class="hub-header-actions">
-            <span class="publisher-pill <?= app_config()['publisher_mode'] === 'instagram_mcp' ? 'direct' : 'metricool' ?>">
-                <?= app_config()['publisher_mode'] === 'instagram_mcp' ? 'Direct Instagram MCP' : 'Metricool' ?>
-            </span>
-            <a class="button small ghost" href="?logout=1">Log out</a>
-        </div>
+
+        <nav class="primary-nav" aria-label="Main navigation">
+            <?php foreach ($nav as $href => $item): ?>
+                <a href="<?= e($href) ?>" class="nav-link <?= $currentPage === $href ? 'active' : '' ?>">
+                    <span class="nav-label"><?= e($item['label']) ?></span>
+                    <span class="nav-short"><?= e($item['short']) ?></span>
+                </a>
+            <?php endforeach; ?>
+        </nav>
     </header>
-    <nav class="hub-nav" aria-label="Main">
-        <?php foreach ($nav as $href => $label): ?>
-            <a href="<?= e($href) ?>" class="<?= $currentPage === $href ? 'active' : '' ?>"><?= e($label) ?></a>
-        <?php endforeach; ?>
-    </nav>
-    <main>
+
+    <main class="page-shell">
+        <section class="page-head">
+            <div>
+                <div class="eyebrow">Webkitti Automation</div>
+                <h1><?= e($currentTitle) ?></h1>
+                <p><?= e($currentDescription) ?></p>
+            </div>
+            <div class="flow-chip" title="Current automation route">
+                <span>Website</span><b>→</b><span>Gmail</span><b>→</b><span>Work</span><b>→</b><span><?= $isDirect ? 'MCP' : 'Metricool' ?></span>
+            </div>
+        </section>
