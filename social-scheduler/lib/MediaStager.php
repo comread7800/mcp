@@ -73,6 +73,49 @@ final class MediaStager
         }
     }
 
+    public function cleanupExpired(?int $retentionSeconds = null): array
+    {
+        $retention = max(
+            3600,
+            $retentionSeconds ?? (int)($this->config['media_retention_seconds'] ?? 86400)
+        );
+        $dir = rtrim((string)$this->config['media_path'], '/');
+        if (!is_dir($dir)) {
+            return ['deleted' => 0, 'kept' => 0, 'errors' => 0, 'retention_seconds' => $retention];
+        }
+
+        $cutoff = time() - $retention;
+        $deleted = 0;
+        $kept = 0;
+        $errors = 0;
+
+        foreach (glob($dir . '/*.jpg') ?: [] as $path) {
+            $name = basename($path);
+            if (!preg_match('/^[a-f0-9]{32}\.jpg$/', $name) || !is_file($path)) {
+                continue;
+            }
+
+            $mtime = @filemtime($path);
+            if ($mtime === false || $mtime > $cutoff) {
+                $kept++;
+                continue;
+            }
+
+            if (@unlink($path)) {
+                $deleted++;
+            } else {
+                $errors++;
+            }
+        }
+
+        return [
+            'deleted' => $deleted,
+            'kept' => $kept,
+            'errors' => $errors,
+            'retention_seconds' => $retention,
+        ];
+    }
+
     private function decodeBase64(string $value): string
     {
         if (preg_match('~^data:[^;]+;base64,(.+)$~s', $value, $m)) {
@@ -141,36 +184,74 @@ final class MediaStager
 
     private function toInstagramJpeg(string $bytes, string $mime, bool $fit45 = false): array
     {
+        $info = @getimagesizefromstring($bytes);
+        if (!$info) {
+            throw new RuntimeException('Invalid image data.');
+        }
+
+        $originalWidth = (int)$info[0];
+        $originalHeight = (int)$info[1];
+        if ($originalWidth < 320) {
+            throw new RuntimeException('Instagram image width must be at least 320 px.');
+        }
+
+        $originalRatio = $originalWidth / max(1, $originalHeight);
+        $isFourFive = abs($originalRatio - 0.8) <= 0.002;
+        $instagramMaxBytes = 8 * 1024 * 1024;
+
+        // Best quality path: if Work already returned a valid 4:5 JPEG,
+        // do not decode/resample/re-encode it. This avoids generation loss,
+        // extra JPEG artifacts and artificial upscaling.
+        if ($fit45 && $mime === 'image/jpeg' && $isFourFive && strlen($bytes) <= $instagramMaxBytes) {
+            return [$bytes, $originalWidth, $originalHeight];
+        }
+
+        // Direct-image staging also keeps a valid JPEG untouched when possible.
+        if (!$fit45
+            && $mime === 'image/jpeg'
+            && $originalRatio >= 0.8 - 0.001
+            && $originalRatio <= 1.91 + 0.001
+            && strlen($bytes) <= $instagramMaxBytes) {
+            return [$bytes, $originalWidth, $originalHeight];
+        }
+
         if (!extension_loaded('gd')) {
             if ($mime !== 'image/jpeg') {
                 throw new RuntimeException('PHP GD extension is required to convert PNG/WEBP to JPEG.');
             }
-            $info = @getimagesizefromstring($bytes);
-            if (!$info) {
-                throw new RuntimeException('Invalid JPEG image.');
-            }
-            return [$bytes, (int)$info[0], (int)$info[1]];
+            return [$bytes, $originalWidth, $originalHeight];
         }
 
         $src = @imagecreatefromstring($bytes);
         if (!$src) {
             throw new RuntimeException('Unable to decode image.');
         }
+
         $width = imagesx($src);
         $height = imagesy($src);
-        if ($width < 320) {
-            imagedestroy($src);
-            throw new RuntimeException('Instagram image width must be at least 320 px.');
-        }
 
         if ($fit45) {
-            $targetWidth = 1080;
-            $targetHeight = 1350;
+            // Never upscale a smaller source: upscaling cannot create detail and
+            // was the main source of visibly pixelated slides.
+            $targetWidth = min(1080, max(320, $width));
+            $targetHeight = (int)round($targetWidth * 1.25);
+
+            // A large 4:5 non-JPEG source can be cleanly reduced to Instagram's
+            // native portrait width. A smaller one stays at native dimensions.
+            if ($isFourFive) {
+                $targetWidth = min(1080, $width);
+                $targetHeight = (int)round($targetWidth * 1.25);
+            }
+
             $canvas = imagecreatetruecolor($targetWidth, $targetHeight);
             $white = imagecolorallocate($canvas, 255, 255, 255);
             imagefill($canvas, 0, 0, $white);
 
-            $scale = min($targetWidth / $width, $targetHeight / $height);
+            $scale = min(
+                1.0,
+                $targetWidth / max(1, $width),
+                $targetHeight / max(1, $height)
+            );
             $newWidth = max(1, (int)round($width * $scale));
             $newHeight = max(1, (int)round($height * $scale));
             $x = (int)floor(($targetWidth - $newWidth) / 2);
@@ -201,10 +282,13 @@ final class MediaStager
             $src = $flattened;
         }
 
+        $quality = max(92, min(100, (int)($this->config['media_jpeg_quality'] ?? 96)));
+        imageinterlace($src, true);
         ob_start();
-        imagejpeg($src, null, 90);
+        imagejpeg($src, null, $quality);
         $jpeg = (string)ob_get_clean();
         imagedestroy($src);
+
         if ($jpeg === '') {
             throw new RuntimeException('Unable to encode JPEG.');
         }
