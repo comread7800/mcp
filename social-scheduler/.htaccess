@@ -1,11 +1,11 @@
 DirectoryIndex index.php
 Options -Indexes
 
-<FilesMatch "^(config\.php|config\.example\.php|app\.php)$">
+<FilesMatch "^(config\.php|config\.example\.php|app\.php|hub\.php|instagram-bootstrap\.php|.*\.(?:log|lock|json))$">
     Require all denied
 </FilesMatch>
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^storage(?:/|$) - [F,L]
+    RewriteRule ^(?:storage|lib|partials)(?:/|$) - [F,L,NC]
 </IfModule>

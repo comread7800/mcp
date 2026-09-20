@@ -34,6 +34,20 @@ function app_config(): array
     $config['cron_secret'] = trim((string)($config['cron_secret'] ?? ''));
     $config['message_tag'] = trim((string)($config['message_tag'] ?? 'SOCIAL_AUTOMATION')) ?: 'SOCIAL_AUTOMATION';
     $config['storage_path'] = (string)($config['storage_path'] ?? (__DIR__ . '/storage'));
+    $config['publisher_mode'] = strtolower(trim((string)($config['publisher_mode'] ?? 'metricool')));
+    if (!in_array($config['publisher_mode'], ['metricool', 'instagram_mcp'], true)) {
+        $config['publisher_mode'] = 'metricool';
+    }
+    $config['public_base_url'] = rtrim((string)($config['public_base_url'] ?? ''), '/');
+    $config['instagram_app_id'] = trim((string)($config['instagram_app_id'] ?? ''));
+    $config['instagram_app_secret'] = (string)($config['instagram_app_secret'] ?? '');
+    $config['instagram_redirect_uri'] = trim((string)($config['instagram_redirect_uri'] ?? ''));
+    $config['instagram_scopes'] = is_array($config['instagram_scopes'] ?? null) ? $config['instagram_scopes'] : ['instagram_business_basic', 'instagram_business_content_publish'];
+    $config['graph_api_version'] = trim((string)($config['graph_api_version'] ?? 'v26.0')) ?: 'v26.0';
+    $config['mcp_api_key'] = trim((string)($config['mcp_api_key'] ?? ''));
+    $config['allowed_origins'] = is_array($config['allowed_origins'] ?? null) ? $config['allowed_origins'] : [];
+    $config['media_path'] = (string)($config['media_path'] ?? (__DIR__ . '/media'));
+    $config['media_max_bytes'] = (int)($config['media_max_bytes'] ?? (12 * 1024 * 1024));
 
     try {
         new DateTimeZone($config['timezone']);
@@ -372,23 +386,36 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
         . ' | '
         . $triggeredAt->format('Y-m-d H:i:s')
         . ' | JOB-' . $schedule['id'];
+
+    $publisherRules = $config['publisher_mode'] === 'instagram_mcp'
+        ? "3. Publish ONLY through the connected direct Instagram MCP for this site. Do not use Metricool or Composio.\n"
+          . "4. Use the full email subject plus TRIGGERED_AT as the unique job_id. Check instagram_publication_status before retrying.\n"
+          . "5. Check instagram_connection_status and instagram_recent_posts before publishing.\n"
+          . "6. Stage media with instagram_stage_media when a durable public HTTPS JPEG URL is not already available.\n"
+          . "7. For a carousel, call instagram_publish_carousel exactly once with slides in the correct order.\n"
+          . "8. After publishing, verify the returned status/media_id/permalink. If the MCP returns an error, report the exact error and stop.\n"
+          . "9. Never claim success unless the direct Instagram MCP confirms publication.\n"
+        : "3. Publish ONLY through the connected Metricool plugin. Do not use Composio or another fallback publisher.\n"
+          . "4. Publish as soon as the content is ready. If Metricool requires a future timestamp, use the earliest valid future time with autoPublish enabled.\n"
+          . "5. Mark AI-generated Instagram content correctly when the tool exposes that option.\n"
+          . "6. Every valid non-test job must end with exactly one Metricool post attempt and a verified Metricool status; never stop silently after research or media creation.\n"
+          . "7. If Metricool reports PENDING/PUBLISHING, do not submit another copy. If it reports ERROR/FAILED, report the exact error and stop.\n"
+          . "8. Never claim success unless Metricool confirms publication.\n";
+
     $body = '[' . $tag . "]\n"
         . 'SOURCE: ' . strtoupper($source) . "\n"
         . 'SCHEDULE_ID: ' . $schedule['id'] . "\n"
         . 'SCHEDULE_NAME: ' . $schedule['name'] . "\n"
-        . 'TRIGGERED_AT: ' . $triggeredAt->format('Y-m-d H:i:s T') . "\n\n"
+        . 'TRIGGERED_AT: ' . $triggeredAt->format('Y-m-d H:i:s T') . "\n"
+        . 'PUBLISHER_MODE: ' . strtoupper($config['publisher_mode']) . "\n\n"
         . "PROMPT:\n" . trim($schedule['prompt']) . "\n\n"
         . "EXECUTION RULES:\n"
         . "1. Execute the prompt fully; research current information when the prompt requires it.\n"
-        . "2. Prepare the final Instagram caption and the required visual/media.\n"
-        . "3. Publish the finished Instagram post as soon as the content is ready using the connected Metricool plugin.\n"
-        . "4. Do not create a ChatGPT time-based schedule and do not wait for a separate publish time; this website already decided when the job should start.\n"
-        . "5. If Metricool only exposes scheduled publishing, use the earliest valid publication time available (immediate/next minute) with autoPublish enabled.\n"
-        . "6. Mark AI-generated Instagram content correctly when the Metricool tool exposes that option.\n"
-        . "7. Every valid non-test job must end with exactly one Metricool post attempt and a verified Metricool status; never stop silently after research or media creation.\n"
-        . "8. Do not skip the whole job because recent posts used similar topics; choose different fresh stories and expand research up to 48 hours if needed.\n"
-        . "9. If one media-generation or upload step fails, retry that failed step once. Music/audio must never block carousel publishing.\n"
-        . "10. If no Metricool record is created, treat that as a failure and report it explicitly. Never claim success unless Metricool confirms it.";
+        . "2. Prepare the final Instagram caption and every required visual/media asset.\n"
+        . $publisherRules
+        . "10. Do not create a ChatGPT time-based schedule; this website already decided when the job starts.\n"
+        . "11. Do not skip the whole job because similar topics were recently used; choose different fresh stories and expand research up to 48 hours if needed.\n"
+        . "12. If one media-generation or upload step fails, retry that failed step once. Unsupported carousel music/audio must never block publishing.";
 
     return ['subject' => $subject, 'body' => $body];
 }
