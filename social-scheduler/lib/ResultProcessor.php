@@ -240,7 +240,7 @@ final class ResultProcessor
         $boundary = $this->headerParam($contentType, 'boundary');
 
         if (str_starts_with($mime, 'multipart/') && $boundary !== '') {
-            $parts = preg_split('/\R--' . preg_quote($boundary, '/') . '(?:--)?\s*\R/', "\n" . $body) ?: [];
+            $parts = preg_split('/\\R--' . preg_quote($boundary, '/') . '(?:--)?\\s*(?:\\R|$)/', "\\n" . $body) ?: [];
             foreach ($parts as $part) {
                 $part = trim($part, "\r\n");
                 if ($part === '' || $part === '--') continue;
