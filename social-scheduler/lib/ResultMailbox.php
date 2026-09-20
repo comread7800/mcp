@@ -36,13 +36,28 @@ final class ResultMailbox
             $this->command($stream, 'LOGIN ' . $this->quote((string)$this->config['imap_username']) . ' ' . $this->quote((string)$this->config['imap_app_password']));
             $this->command($stream, 'SELECT ' . $this->quote((string)$this->config['imap_mailbox']));
             $tag = (string)$this->config['result_subject_tag'];
-            $response = $this->command($stream, 'UID SEARCH UNSEEN SUBJECT ' . $this->quote('[' . $tag . ']'));
+
+            // Do not depend on Gmail's Seen/Unread flag. A user opening a valid
+            // SOCIAL_READY result in Gmail must never prevent automatic publishing.
+            // Search a small recent window, then let ResultProcessor + Instagram job
+            // idempotency reject already-processed messages safely.
+            $since = (new DateTimeImmutable('now', new DateTimeZone('UTC')))
+                ->modify('-2 days')
+                ->format('d-M-Y');
+            $response = $this->command(
+                $stream,
+                'UID SEARCH SINCE ' . $since . ' SUBJECT ' . $this->quote('[' . $tag . ']')
+            );
             $uids = $this->parseSearchUids($response);
             if (!$uids) return [];
 
-            // Process oldest unread result first so a busy mailbox cannot starve earlier jobs.
             sort($uids, SORT_NUMERIC);
-            $uids = array_slice($uids, 0, $limit);
+
+            // Fetch several recent candidates instead of only one. Some may already
+            // be processed/seen, and ResultProcessor will skip them by dedupe key.
+            $candidateLimit = max(10, min(30, $limit * 10));
+            $uids = array_slice($uids, -$candidateLimit);
+
             $messages = [];
             foreach ($uids as $uid) {
                 $raw = $this->fetchUid($stream, $uid);
