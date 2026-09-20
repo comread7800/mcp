@@ -75,7 +75,7 @@ require __DIR__ . '/partials/header.php';
 <section class="grid stats hub-stats">
     <div class="card stat"><span>Active schedules</span><strong><?= $activeSchedules ?></strong><small>Website controls timing</small></div>
     <div class="card stat"><span>Scheduler heartbeat</span><strong><?= $lastCheck ? e((new DateTimeImmutable($lastCheck))->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M, H:i')) : 'Not seen' ?></strong><small>IST</small></div>
-    <div class="card stat"><span>Instagram</span><strong><?= !empty($igStatus['connected']) && !empty($igStatus['healthy']) ? '@' . e((string)($igStatus['username'] ?? 'connected')) : 'Not ready' ?></strong><small>Direct MCP account</small></div>
+    <div class="card stat"><span>Instagram</span><strong><?= !empty($igStatus['connected']) && !empty($igStatus['healthy']) ? '@' . e((string)($igStatus['username'] ?? 'connected')) : 'Not ready' ?></strong><small>Direct Meta API account</small></div>
     <div class="card stat"><span>Publisher mode</span><strong><?= e(match(publisher_mode()){'email_bridge'=>'Auto Bridge','instagram_mcp'=>'Direct MCP',default=>'Metricool'}) ?></strong><small>Runtime mode</small></div>
 </section>
 
