@@ -21,10 +21,10 @@ return [
         'instagram_business_content_publish',
     ],
 
-    // Latest Graph API version at the time this project was built (Sep 2026).
+    // Graph API version used by the Instagram client.
     'graph_api_version' => 'v26.0',
 
-    // Secret used by ChatGPT/another MCP client to call mcp/server.php.
+    // Secret used by ChatGPT/another MCP client to call mcp.php.
     // Prefer Authorization: Bearer <token>. Query-string ?key=... is supported only as a fallback.
     'mcp_api_key' => 'CHANGE_TO_A_LONG_RANDOM_SECRET',
 
