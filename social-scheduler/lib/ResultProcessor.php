@@ -32,6 +32,7 @@ final class ResultProcessor
         try {
             $messages = $this->mailbox->fetchReadyMessages($limit);
             $results = [];
+            $handled = 0;
             foreach ($messages as $message) {
                 $uid = (int)$message['uid'];
                 try {
@@ -46,6 +47,14 @@ final class ResultProcessor
                         $results[] = ['uid' => $uid, 'status' => 'duplicate_ignored', 'job_key' => $jobKey];
                         continue;
                     }
+
+                    // fetchReadyMessages may include recent already-read candidates so
+                    // Gmail's Seen flag cannot suppress publishing. Preserve the
+                    // configured per-run work limit for actual unprocessed jobs.
+                    if ($handled >= $limit) {
+                        break;
+                    }
+                    $handled++;
 
                     $caption = $this->extractCaption((string)$parsed['text']);
                     $attachments = $this->orderedImages((array)$parsed['attachments']);
