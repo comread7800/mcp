@@ -1,8 +1,10 @@
 <?php
 declare(strict_types=1);
-require __DIR__ . '/app.php';
+
+require __DIR__ . '/result-bootstrap.php';
 
 header('Content-Type: application/json; charset=utf-8');
+@set_time_limit(240);
 
 try {
     $config = app_config();
@@ -26,11 +28,28 @@ try {
         }
     }
 
-    $results = process_due_schedules();
+    $scheduleResults = process_due_schedules();
+
+    $bridgeResult = ['enabled' => false, 'processed' => []];
+    if (publisher_mode() === 'email_bridge') {
+        try {
+            $bridgeResult = (new ResultProcessor())->process((int)$config['result_max_messages_per_run']);
+        } catch (Throwable $bridgeError) {
+            add_log(null, 'RESULT-BRIDGE', 'failed', 'Result bridge fatal error: ' . $bridgeError->getMessage());
+            $bridgeResult = [
+                'enabled' => true,
+                'processed' => [],
+                'error' => $bridgeError->getMessage(),
+            ];
+        }
+    }
+
     echo json_encode([
-        'ok' => true,
+        'ok' => !isset($bridgeResult['error']),
         'checkedAt' => app_now()->format(DateTimeInterface::ATOM),
-        'processed' => $results,
+        'publisherMode' => publisher_mode(),
+        'scheduledJobs' => $scheduleResults,
+        'resultBridge' => $bridgeResult,
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 } catch (Throwable $e) {
     http_response_code(500);
