@@ -76,7 +76,7 @@ require __DIR__ . '/partials/header.php';
     <div class="card stat"><span>Active schedules</span><strong><?= $activeSchedules ?></strong><small>Website controls timing</small></div>
     <div class="card stat"><span>Scheduler heartbeat</span><strong><?= $lastCheck ? e((new DateTimeImmutable($lastCheck))->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M, H:i')) : 'Not seen' ?></strong><small>IST</small></div>
     <div class="card stat"><span>Instagram</span><strong><?= !empty($igStatus['connected']) && !empty($igStatus['healthy']) ? '@' . e((string)($igStatus['username'] ?? 'connected')) : 'Not ready' ?></strong><small>Direct MCP account</small></div>
-    <div class="card stat"><span>Publisher mode</span><strong><?= app_config()['publisher_mode'] === 'instagram_mcp' ? 'Direct MCP' : 'Metricool' ?></strong><small>Set in config.php</small></div>
+    <div class="card stat"><span>Publisher mode</span><strong><?= e(match(publisher_mode()){'email_bridge'=>'Auto Bridge','instagram_mcp'=>'Direct MCP',default=>'Metricool'}) ?></strong><small>Runtime mode</small></div>
 </section>
 
 <section class="grid dashboard-grid">
@@ -85,12 +85,16 @@ require __DIR__ . '/partials/header.php';
         <h2>Automation pipeline</h2>
         <div class="flowline">
             <span>Website schedule</span><b>→</b><span>Gmail</span><b>→</b><span>ChatGPT Work</span><b>→</b>
-            <span><?= app_config()['publisher_mode'] === 'instagram_mcp' ? 'Direct Instagram MCP' : 'Metricool' ?></span><b>→</b><span>Instagram</span>
+            <?php if (publisher_mode() === 'email_bridge'): ?>
+                <span>Gmail result</span><b>→</b><span>Meta API</span><b>→</b><span>Instagram</span>
+            <?php else: ?>
+                <span><?= publisher_mode() === 'instagram_mcp' ? 'Direct Instagram MCP' : 'Metricool' ?></span><b>→</b><span>Instagram</span>
+            <?php endif; ?>
         </div>
         <p class="muted">Use the menu above for schedules, Work trigger instructions, Instagram account connection, MCP endpoint, logs, and full setup checks.</p>
         <div class="quick-actions">
             <a class="button primary" href="schedules.php">Manage schedules</a>
-            <a class="button secondary" href="setup.php">Open setup checklist</a>
+            <a class="button secondary" href="bridge.php">Open Auto Bridge</a>
         </div>
     </div>
 
@@ -120,10 +124,10 @@ require __DIR__ . '/partials/header.php';
     </div>
 
     <div class="card">
-        <div class="eyebrow">Safe cutover</div>
-        <h2>Keep Metricool until direct test passes</h2>
-        <p class="muted">Deploy this folder, connect Instagram, connect the MCP to ChatGPT, publish one controlled direct test, verify the final Instagram URL, then switch <code>publisher_mode</code> to <code>instagram_mcp</code> and update the Work trigger.</p>
-        <a class="text-link" href="mcp-status.php">View MCP endpoint →</a>
+        <div class="eyebrow">Final automation</div>
+        <h2><?= publisher_mode() === 'email_bridge' ? 'Hands-off publishing active' : 'Auto Bridge ready for activation' ?></h2>
+        <p class="muted">ChatGPT Work creates the researched caption and final slides, sends one structured Gmail result, then your website reads the attachments and publishes directly through the Meta Instagram API.</p>
+        <a class="text-link" href="bridge.php">Open Auto Bridge →</a>
     </div>
 </section>
 <?php require __DIR__ . '/partials/footer.php'; ?>
