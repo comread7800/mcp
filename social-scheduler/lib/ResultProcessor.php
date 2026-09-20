@@ -81,7 +81,7 @@ final class ResultProcessor
                             throw new RuntimeException('Instagram did not confirm publication. Status: ' . ($status ?: 'unknown'));
                         }
 
-                        $this->rememberProcessed($dedupeKey, [
+                        $this->rememberProcessed($dedupeKey, $uid, [
                             'message_id' => $messageId,
                             'job_key' => $jobKey,
                             'media_id' => $publish['media_id'] ?? null,
@@ -180,16 +180,23 @@ final class ResultProcessor
         return with_state(static fn(array $state): bool => isset($state['meta']['processed_result_emails'][$key]));
     }
 
-    private function rememberProcessed(string $key, array $data): void
+    private function rememberProcessed(string $key, int $uid, array $data): void
     {
-        with_state(static function(array &$state) use ($key, $data): void {
+        with_state(static function(array &$state) use ($key, $uid, $data): void {
             $state['meta']['processed_result_emails'] = is_array($state['meta']['processed_result_emails'] ?? null)
                 ? $state['meta']['processed_result_emails'] : [];
             $state['meta']['processed_result_emails'][$key] = $data;
             if (count($state['meta']['processed_result_emails']) > 200) {
                 $state['meta']['processed_result_emails'] = array_slice($state['meta']['processed_result_emails'], -200, null, true);
             }
-            unset($state['meta']['result_failures']);
+
+            // Clear only this message's retry counter. Do not erase failures for other pending jobs.
+            if (is_array($state['meta']['result_failures'] ?? null)) {
+                unset($state['meta']['result_failures'][(string)$uid]);
+                if ($state['meta']['result_failures'] === []) {
+                    unset($state['meta']['result_failures']);
+                }
+            }
         }, true);
     }
 
@@ -240,7 +247,7 @@ final class ResultProcessor
         $boundary = $this->headerParam($contentType, 'boundary');
 
         if (str_starts_with($mime, 'multipart/') && $boundary !== '') {
-            $parts = preg_split('/\\R--' . preg_quote($boundary, '/') . '(?:--)?\\s*(?:\\R|$)/', "\\n" . $body) ?: [];
+            $parts = preg_split('/\\R--' . preg_quote($boundary, '/') . '(?:--)?\\s*(?:\\R|$)/', "\n" . $body) ?: [];
             foreach ($parts as $part) {
                 $part = trim($part, "\r\n");
                 if ($part === '' || $part === '--') continue;
