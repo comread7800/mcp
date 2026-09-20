@@ -385,7 +385,10 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
         . "4. Do not create a ChatGPT time-based schedule and do not wait for a separate publish time; this website already decided when the job should start.\n"
         . "5. If Metricool only exposes scheduled publishing, use the earliest valid publication time available (immediate/next minute) with autoPublish enabled.\n"
         . "6. Mark AI-generated Instagram content correctly when the Metricool tool exposes that option.\n"
-        . "7. If publication fails, report the exact Metricool/Instagram error instead of claiming it published.";
+        . "7. Every valid non-test job must end with exactly one Metricool post attempt and a verified Metricool status; never stop silently after research or media creation.\n"
+        . "8. Do not skip the whole job because recent posts used similar topics; choose different fresh stories and expand research up to 48 hours if needed.\n"
+        . "9. If one media-generation or upload step fails, retry that failed step once. Music/audio must never block carousel publishing.\n"
+        . "10. If no Metricool record is created, treat that as a failure and report it explicitly. Never claim success unless Metricool confirms it.";
 
     return ['subject' => $subject, 'body' => $body];
 }
