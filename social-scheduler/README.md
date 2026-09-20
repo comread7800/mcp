@@ -92,7 +92,7 @@ slide-03.jpg
 ...
 ```
 
-The website validates the sender/tag, parses the caption, stages the final images, normalizes supported images to Instagram-safe 4:5 JPEG when GD is available, publishes through the Meta API, records the result, and protects against duplicate submissions.
+The website validates the sender/tag, parses the caption and stages the final images. Correct 4:5 JPEG slides are passed through without re-encoding, smaller sources are not force-upscaled, and only images that actually need normalization are re-encoded at high JPEG quality. The website then publishes through the Meta API, records the result, and protects against duplicate submissions.
 
 ## Publisher modes
 
@@ -111,5 +111,17 @@ The same existing once-per-minute cron is used. In final mode it:
 1. sends any due website schedule email to ChatGPT Work
 2. checks the result Gmail inbox for `[SOCIAL_READY]`
 3. publishes completed jobs directly to Instagram
+4. keeps staged public media available for Meta for 24 hours
+5. automatically deletes staged post images after the 24-hour retention window
 
-If a result job fails, it is retried up to three cron runs and the exact failure is written to Logs.
+If a result job fails, it is retried up to five processing attempts and the exact failure is written to Logs.
+
+
+## Image quality and temporary media
+
+- Final Work slides should be exact 1080x1350 (4:5) JPEG whenever possible.
+- A correct 4:5 JPEG is uploaded to Meta without another JPEG encode.
+- Smaller source images are never enlarged just to hit 1080px; this prevents artificial pixelation.
+- Images that must be converted are encoded with the configured high-quality JPEG setting (default 96).
+- Staged public images are retained for 24 hours so Meta has a stable fetch window.
+- Cron removes only generated staged files matching the random media filename pattern after the retention period.
