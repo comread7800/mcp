@@ -39,7 +39,7 @@ require __DIR__ . '/partials/header.php';
         <ul class="check-list">
             <?php foreach ($runtime as $label => $ok): ?><li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✓' : '!' ?></span><?= e($label) ?></li><?php endforeach; ?>
         </ul>
-        <p class="muted">GD is used to normalize result attachments to 1080x1350 when needed. Mbstring is required for safe Instagram caption/alt-text length handling. OpenSSL streams are used to read the Gmail result inbox over IMAP without requiring the PHP IMAP extension.</p>
+        <p class="muted">Correct 4:5 JPEG slides are passed through without re-encoding. GD is used only when conversion/normalization is needed, with high JPEG quality and no forced upscaling of smaller images. Temporary staged media is retained for 24 hours and then deleted automatically by cron. Mbstring is required for safe Instagram caption/alt-text length handling. OpenSSL streams are used to read the Gmail result inbox over IMAP without requiring the PHP IMAP extension.</p>
     </div>
 </section>
 
@@ -64,6 +64,8 @@ require __DIR__ . '/partials/header.php';
         <div class="meta-card"><span>Instagram</span><strong><?= !empty($igStatus['connected']) && !empty($igStatus['healthy']) ? '@' . e((string)($igStatus['username'] ?? 'connected')) . ' · ready' : 'Not ready' ?></strong></div>
         <div class="meta-card"><span>Result inbox</span><strong><?= e((string)$config['imap_username']) ?></strong></div>
         <div class="meta-card"><span>Expected result sender</span><strong><?= e((string)$config['result_email_from']) ?></strong></div>
+        <div class="meta-card"><span>JPEG quality</span><strong><?= e((string)$config['media_jpeg_quality']) ?>/100</strong></div>
+        <div class="meta-card"><span>Temporary media retention</span><strong><?= e((string)round(((int)$config['media_retention_seconds']) / 3600, 1)) ?> hours</strong></div>
         <a class="button primary" href="bridge.php">Open Auto Bridge</a>
     </div>
     <div class="card">
