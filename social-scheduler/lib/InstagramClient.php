@@ -77,9 +77,10 @@ final class InstagramClient
             'username' => (string)($profile['username'] ?? ''),
             'access_token' => $token,
             'issued_at' => gmdate('c', $now),
-            // Dashboard-generated tokens may not expose expiry through this flow.
-            // Leave expiry unknown and rely on explicit API health checks/refresh when available.
-            'expires_at' => null,
+            // App Dashboard tokens do not always expose expiry metadata here.
+            // Track a 60-day refresh window so the server can refresh proactively.
+            'expires_at' => gmdate('c', $now + 5184000),
+            'expires_at_estimated' => true,
             'connected_at' => gmdate('c', $now),
             'token_source' => 'manual_dashboard_token',
         ];
@@ -290,8 +291,18 @@ final class InstagramClient
 
     private function ensureFreshToken(array $connection): array
     {
-        $expiresAt = isset($connection['expires_at']) ? strtotime((string)$connection['expires_at']) : false;
-        $issuedAt = isset($connection['issued_at']) ? strtotime((string)$connection['issued_at']) : false;
+        $expiresAt = !empty($connection['expires_at']) ? strtotime((string)$connection['expires_at']) : false;
+        $issuedAt = !empty($connection['issued_at']) ? strtotime((string)$connection['issued_at']) : false;
+
+        if (!$expiresAt
+            && ($connection['token_source'] ?? '') === 'manual_dashboard_token'
+            && $issuedAt) {
+            $expiresAt = $issuedAt + 5184000;
+            $connection['expires_at'] = gmdate('c', $expiresAt);
+            $connection['expires_at_estimated'] = true;
+            $this->store->saveConnection($connection);
+        }
+
         if ($expiresAt && $expiresAt - time() < 7 * 86400 && (!$issuedAt || time() - $issuedAt >= 86400)) {
             $refreshed = $this->refreshLongLivedToken((string)$connection['access_token']);
             if (!empty($refreshed['access_token'])) {

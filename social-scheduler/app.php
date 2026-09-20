@@ -35,7 +35,7 @@ function app_config(): array
     $config['message_tag'] = trim((string)($config['message_tag'] ?? 'SOCIAL_AUTOMATION')) ?: 'SOCIAL_AUTOMATION';
     $config['storage_path'] = (string)($config['storage_path'] ?? (__DIR__ . '/storage'));
     $config['publisher_mode'] = strtolower(trim((string)($config['publisher_mode'] ?? 'metricool')));
-    if (!in_array($config['publisher_mode'], ['metricool', 'instagram_mcp'], true)) {
+    if (!in_array($config['publisher_mode'], ['metricool', 'instagram_mcp', 'email_bridge'], true)) {
         $config['publisher_mode'] = 'metricool';
     }
     $config['public_base_url'] = rtrim((string)($config['public_base_url'] ?? ''), '/');
@@ -48,6 +48,17 @@ function app_config(): array
     $config['allowed_origins'] = is_array($config['allowed_origins'] ?? null) ? $config['allowed_origins'] : [];
     $config['media_path'] = (string)($config['media_path'] ?? (__DIR__ . '/media'));
     $config['media_max_bytes'] = (int)($config['media_max_bytes'] ?? (12 * 1024 * 1024));
+    $config['result_subject_tag'] = trim((string)($config['result_subject_tag'] ?? 'SOCIAL_READY')) ?: 'SOCIAL_READY';
+    $config['result_email_to'] = trim((string)($config['result_email_to'] ?? '')) ?: $config['smtp_username'];
+    $config['result_email_from'] = trim((string)($config['result_email_from'] ?? '')) ?: $config['mail_to'];
+    $config['imap_host'] = trim((string)($config['imap_host'] ?? 'imap.gmail.com')) ?: 'imap.gmail.com';
+    $config['imap_port'] = (int)($config['imap_port'] ?? 993);
+    $config['imap_username'] = trim((string)($config['imap_username'] ?? '')) ?: $config['smtp_username'];
+    $imapPassword = preg_replace('/\s+/', '', (string)($config['imap_app_password'] ?? '')) ?? '';
+    $config['imap_app_password'] = $imapPassword !== '' ? $imapPassword : $config['smtp_app_password'];
+    $config['imap_mailbox'] = trim((string)($config['imap_mailbox'] ?? 'INBOX')) ?: 'INBOX';
+    $config['result_email_max_bytes'] = (int)($config['result_email_max_bytes'] ?? (40 * 1024 * 1024));
+    $config['result_max_messages_per_run'] = max(1, min(5, (int)($config['result_max_messages_per_run'] ?? 2)));
 
     try {
         new DateTimeZone($config['timezone']);
@@ -130,6 +141,32 @@ function app_db(): bool
 {
     storage_file();
     return true;
+}
+
+function publisher_mode(): string
+{
+    $configured = (string)app_config()['publisher_mode'];
+    try {
+        $override = with_state(static fn(array $state): ?string => isset($state['meta']['publisher_mode_override'])
+            ? (string)$state['meta']['publisher_mode_override'] : null);
+        if (in_array($override, ['metricool', 'instagram_mcp', 'email_bridge'], true)) {
+            return $override;
+        }
+    } catch (Throwable) {
+        // Fall back to config.php during first-run/storage errors.
+    }
+    return $configured;
+}
+
+function set_publisher_mode(string $mode): void
+{
+    if (!in_array($mode, ['metricool', 'instagram_mcp', 'email_bridge'], true)) {
+        throw new InvalidArgumentException('Invalid publisher mode.');
+    }
+    with_state(static function(array &$state) use ($mode): void {
+        $state['meta']['publisher_mode_override'] = $mode;
+        $state['meta']['publisher_mode_changed_at'] = app_now()->format(DateTimeInterface::ATOM);
+    }, true);
 }
 
 function app_now(): DateTimeImmutable
@@ -380,6 +417,7 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
 {
     $config = app_config();
     $tag = $config['message_tag'];
+    $mode = publisher_mode();
 
     $subject = '[' . $tag . '] '
         . $schedule['name']
@@ -387,27 +425,45 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
         . $triggeredAt->format('Y-m-d H:i:s')
         . ' | JOB-' . $schedule['id'];
 
-    $publisherRules = $config['publisher_mode'] === 'instagram_mcp'
-        ? "3. Publish ONLY through the connected direct Instagram MCP for this site. Do not use Metricool or Composio.\n"
+    if ($mode === 'email_bridge') {
+        $publisherRules = "3. DO NOT publish through Metricool, MCP, Composio, Instagram directly, or any other publisher.\n"
+            . "4. When every final slide and the final caption are complete, send exactly ONE Gmail result email to: " . $config['result_email_to'] . "\n"
+            . "5. Result email subject MUST be: [" . $config['result_subject_tag'] . "] " . $subject . "\n"
+            . "6. Result email body MUST use this exact plain-text envelope:\n"
+            . "[" . $config['result_subject_tag'] . "]\n"
+            . "JOB_KEY_BEGIN\n" . $subject . "\nJOB_KEY_END\n"
+            . "SCHEDULE_ID: " . $schedule['id'] . "\n"
+            . "TRIGGERED_AT: " . $triggeredAt->format('Y-m-d H:i:s T') . "\n"
+            . "SLIDE_COUNT: <number of final attached slides>\n"
+            . "CAPTION_BEGIN\n<the complete final Instagram caption>\nCAPTION_END\n"
+            . "7. Attach ONLY the final carousel images to that Gmail result email. Name them slide-01.jpg, slide-02.jpg, and so on in exact Instagram order. Use 1080x1350 (4:5) whenever possible. Do not attach drafts, references, source screenshots, ZIPs, PDFs, or duplicate versions.\n"
+            . "8. Gmail delivery of the [" . $config['result_subject_tag'] . "] result email is the required completion step. If sending the result email fails, report the exact Gmail error and do not claim completion.\n"
+            . "9. After the result email is sent successfully, stop. The website cron will read that mailbox and publish the attachments directly through Meta Instagram API.\n";
+    } elseif ($mode === 'instagram_mcp') {
+        $publisherRules = "3. Publish ONLY through the connected direct Instagram MCP for this site. Do not use Metricool or Composio.\n"
           . "4. Use the full email subject plus TRIGGERED_AT as the unique job_id. Check instagram_publication_status before retrying.\n"
           . "5. Check instagram_connection_status and instagram_recent_posts before publishing.\n"
           . "6. Stage media with instagram_stage_media when a durable public HTTPS JPEG URL is not already available.\n"
           . "7. For a carousel, call instagram_publish_carousel exactly once with slides in the correct order.\n"
           . "8. After publishing, verify the returned status/media_id/permalink. If the MCP returns an error, report the exact error and stop.\n"
-          . "9. Never claim success unless the direct Instagram MCP confirms publication.\n"
-        : "3. Publish ONLY through the connected Metricool plugin. Do not use Composio or another fallback publisher.\n"
+          . "9. Never claim success unless the direct Instagram MCP confirms publication.\n";
+    } else {
+        $publisherRules = "3. Publish ONLY through the connected Metricool plugin. Do not use Composio or another fallback publisher.\n"
           . "4. Publish as soon as the content is ready. If Metricool requires a future timestamp, use the earliest valid future time with autoPublish enabled.\n"
           . "5. Mark AI-generated Instagram content correctly when the tool exposes that option.\n"
           . "6. Every valid non-test job must end with exactly one Metricool post attempt and a verified Metricool status; never stop silently after research or media creation.\n"
           . "7. If Metricool reports PENDING/PUBLISHING, do not submit another copy. If it reports ERROR/FAILED, report the exact error and stop.\n"
           . "8. Never claim success unless Metricool confirms publication.\n";
+    }
 
     $body = '[' . $tag . "]\n"
         . 'SOURCE: ' . strtoupper($source) . "\n"
         . 'SCHEDULE_ID: ' . $schedule['id'] . "\n"
         . 'SCHEDULE_NAME: ' . $schedule['name'] . "\n"
         . 'TRIGGERED_AT: ' . $triggeredAt->format('Y-m-d H:i:s T') . "\n"
-        . 'PUBLISHER_MODE: ' . strtoupper($config['publisher_mode']) . "\n\n"
+        . 'PUBLISHER_MODE: ' . strtoupper($mode) . "\n"
+        . 'RESULT_EMAIL_TO: ' . $config['result_email_to'] . "\n"
+        . 'RESULT_SUBJECT_TAG: [' . $config['result_subject_tag'] . "]\n\n"
         . "PROMPT:\n" . trim($schedule['prompt']) . "\n\n"
         . "EXECUTION RULES:\n"
         . "1. Execute the prompt fully; research current information when the prompt requires it.\n"
@@ -415,7 +471,7 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
         . $publisherRules
         . "10. Do not create a ChatGPT time-based schedule; this website already decided when the job starts.\n"
         . "11. Do not skip the whole job because similar topics were recently used; choose different fresh stories and expand research up to 48 hours if needed.\n"
-        . "12. If one media-generation or upload step fails, retry that failed step once. Unsupported carousel music/audio must never block publishing.";
+        . "12. If one media-generation or upload step fails, retry that failed step once. Unsupported carousel music/audio must never block the job.";
 
     return ['subject' => $subject, 'body' => $body];
 }

@@ -10,7 +10,7 @@ $nav = [
     'schedules.php' => ['label' => 'Schedules', 'short' => 'Schedules'],
     'trigger.php' => ['label' => 'Work Trigger', 'short' => 'Trigger'],
     'instagram.php' => ['label' => 'Instagram', 'short' => 'Instagram'],
-    'mcp-status.php' => ['label' => 'MCP', 'short' => 'MCP'],
+    'bridge.php' => ['label' => 'Auto Bridge', 'short' => 'Bridge'],
     'logs.php' => ['label' => 'Logs', 'short' => 'Logs'],
     'setup.php' => ['label' => 'Setup', 'short' => 'Setup'],
 ];
@@ -20,13 +20,20 @@ $pageMeta = [
     'schedules.php' => ['Schedules', 'Create, edit and manually run website-controlled jobs'],
     'trigger.php' => ['Work Trigger', 'Gmail event bridge and ChatGPT Work instructions'],
     'instagram.php' => ['Instagram', 'Connect and test the direct Instagram publisher'],
-    'mcp-status.php' => ['MCP', 'Remote MCP endpoint, tools and connection status'],
+    'bridge.php' => ['Auto Bridge', 'ChatGPT Work result mailbox and automatic Instagram publishing'],
+    'mcp-status.php' => ['MCP', 'Legacy remote MCP endpoint and tool status'],
     'logs.php' => ['Logs', 'Recent website-to-Gmail trigger activity'],
     'setup.php' => ['Setup', 'Configuration and server readiness checklist'],
 ];
 
 [$currentTitle, $currentDescription] = $pageMeta[$currentPage] ?? ['Automation Hub', 'Webkitti social publishing control panel'];
-$isDirect = $config['publisher_mode'] === 'instagram_mcp';
+$mode = publisher_mode();
+$isDirect = in_array($mode, ['instagram_mcp', 'email_bridge'], true);
+$publisherLabel = match ($mode) {
+    'email_bridge' => 'Auto Email Bridge',
+    'instagram_mcp' => 'Direct Instagram MCP',
+    default => 'Metricool Publisher',
+};
 ?>
 <!doctype html>
 <html lang="en">
@@ -53,7 +60,7 @@ $isDirect = $config['publisher_mode'] === 'instagram_mcp';
             <div class="header-actions">
                 <span class="publisher-status <?= $isDirect ? 'is-direct' : 'is-metricool' ?>">
                     <span class="status-pulse"></span>
-                    <?= $isDirect ? 'Direct Instagram MCP' : 'Metricool Publisher' ?>
+                    <?= e($publisherLabel) ?>
                 </span>
                 <a class="logout-link" href="?logout=1">Log out</a>
             </div>
@@ -77,6 +84,6 @@ $isDirect = $config['publisher_mode'] === 'instagram_mcp';
                 <p><?= e($currentDescription) ?></p>
             </div>
             <div class="flow-chip" title="Current automation route">
-                <span>Website</span><b>→</b><span>Gmail</span><b>→</b><span>Work</span><b>→</b><span><?= $isDirect ? 'MCP' : 'Metricool' ?></span>
+                <span>Website</span><b>→</b><span>Gmail</span><b>→</b><span>Work</span><b>→</b><span><?= $mode === 'email_bridge' ? 'Email Bridge' : ($mode === 'instagram_mcp' ? 'MCP' : 'Metricool') ?></span>
             </div>
         </section>

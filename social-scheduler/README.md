@@ -1,63 +1,115 @@
 # Webkitti Automation Hub
 
-One deployable PHP folder for the full automation control panel.
+One deployable PHP folder for the complete Instagram automation.
+
+Final hands-off flow:
 
 ```text
-Website schedules -> Gmail -> ChatGPT Work -> Publisher -> Instagram
+Website schedule
+   -> Gmail trigger
+   -> ChatGPT Work
+   -> research + caption + final carousel images
+   -> Gmail result with attachments
+   -> website cron
+   -> Meta Instagram API
+   -> Instagram live
 ```
 
-The publisher can be switched in `config.php`:
-
-```php
-'publisher_mode' => 'metricool',
-```
-
-or, after a successful direct test:
-
-```php
-'publisher_mode' => 'instagram_mcp',
-```
+Metricool and the custom ChatGPT MCP route remain available as fallbacks, but the recommended final mode is `email_bridge`.
 
 ## Pages
 
 - `index.php` — dashboard
 - `schedules.php` — create/edit/run schedules
-- `trigger.php` — Gmail + ChatGPT Work trigger instructions
-- `instagram.php` — Meta/Instagram OAuth connection + controlled direct test
-- `mcp-status.php` — remote MCP endpoint and tools
-- `logs.php` — website Gmail delivery logs
+- `trigger.php` — exact Gmail-event / ChatGPT Work instruction
+- `instagram.php` — Meta/Instagram account connection + controlled direct test
+- `bridge.php` — final Auto Bridge status, mailbox test, activation, manual inbox check
+- `mcp-status.php` — legacy custom MCP status
+- `logs.php` — website trigger / publishing logs
 - `setup.php` — complete setup checklist
-- `cron.php` — Hostinger scheduler endpoint
-- `health.php` — basic website health endpoint
-- `mcp.php` — direct Instagram remote MCP endpoint
+- `cron.php` — one cron endpoint for both schedule triggers and final-result publishing
+- `health.php` — website health endpoint
 
-## Upgrade from the old social-scheduler folder
+## Upgrade from the previous folder
 
-Upload/replace the code files but **keep your existing private `config.php` and `storage/` folder** so existing Gmail credentials, cron secret, and schedules remain intact.
+Upload/replace the code files but **keep your existing private `config.php` and `storage/` folder**.
 
-Then add the new keys from `config.example.php` into your existing `config.php`:
+The final email bridge is designed to reuse the Gmail credentials you already have:
 
-- `publisher_mode`
-- `public_base_url`
-- `instagram_app_id`
-- `instagram_app_secret`
-- `instagram_redirect_uri`
-- `instagram_scopes`
-- `graph_api_version`
-- `mcp_api_key`
-- `allowed_origins`
-- `media_path`
-- `media_max_bytes`
+- trigger sender: `smtp_username`
+- ChatGPT Work inbox: `mail_to`
+- result inbox: defaults to `smtp_username`
+- trusted result sender: defaults to `mail_to`
+- IMAP password: defaults to the existing `smtp_app_password`
 
-Never commit or share the real `config.php`.
+So an existing working setup normally does **not** need another Gmail password.
 
-## Safe cutover
+Never commit or share the real `config.php`, Gmail App Password, Instagram token, Meta App Secret, cron secret, or MCP key.
 
-Keep `publisher_mode = metricool` until:
+## Final one-time activation
 
-1. Meta App is configured.
-2. @webkitti is connected on `instagram.php`.
-3. `mcp.php` is connected to ChatGPT.
-4. A controlled direct Instagram test returns a real published media ID/permalink.
+1. Deploy the updated `social-scheduler` folder.
+2. Keep the existing Hostinger cron running once per minute.
+3. Confirm `Instagram` still shows @webkitti connected/healthy.
+4. Open `Auto Bridge` and click **Test mailbox login**.
+5. Click **Activate Final Auto Mode**.
+6. The ChatGPT Work Gmail-event automation must use the Email Bridge routing instruction shown on `trigger.php`.
+7. Run one schedule manually for an end-to-end test.
 
-Then switch to `instagram_mcp` and update the Work trigger using the Direct MCP instruction shown on `trigger.php`.
+After that, normal posting is automatic.
+
+## Result email protocol
+
+ChatGPT Work returns one result email to the bridge mailbox.
+
+Subject:
+
+```text
+[SOCIAL_READY] <exact original trigger subject>
+```
+
+Body:
+
+```text
+[SOCIAL_READY]
+JOB_KEY_BEGIN
+<exact original trigger subject>
+JOB_KEY_END
+SCHEDULE_ID: <id>
+TRIGGERED_AT: <time>
+SLIDE_COUNT: <count>
+CAPTION_BEGIN
+<complete Instagram caption>
+CAPTION_END
+```
+
+Attachments must be the final Instagram images named in posting order:
+
+```text
+slide-01.jpg
+slide-02.jpg
+slide-03.jpg
+...
+```
+
+The website validates the sender/tag, parses the caption, stages the final images, normalizes supported images to Instagram-safe 4:5 JPEG when GD is available, publishes through the Meta API, records the result, and protects against duplicate submissions.
+
+## Publisher modes
+
+```text
+email_bridge  = recommended final automation
+metricool     = fallback
+instagram_mcp = legacy/custom MCP route
+```
+
+The dashboard can activate `email_bridge` as a runtime override, so you do not need to edit `config.php` just to switch the final publisher mode.
+
+## Cron
+
+The same existing once-per-minute cron is used. In final mode it:
+
+1. sends any due website schedule email to ChatGPT Work
+2. checks the result Gmail inbox for `[SOCIAL_READY]`
+3. publishes completed jobs directly to Instagram
+
+If a result job fails, it is retried up to three cron runs and the exact failure is written to Logs.

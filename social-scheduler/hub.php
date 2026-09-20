@@ -61,7 +61,10 @@ function hub_config_status(): array
     $checks['Meta App ID'] = $c['instagram_app_id'] !== '' && $c['instagram_app_id'] !== 'CHANGE_ME';
     $checks['Meta App Secret'] = $c['instagram_app_secret'] !== '' && $c['instagram_app_secret'] !== 'CHANGE_ME';
     $checks['Instagram redirect URI'] = str_starts_with((string)$c['instagram_redirect_uri'], 'https://');
-    $checks['MCP API key'] = $c['mcp_api_key'] !== '' && !str_contains($c['mcp_api_key'], 'CHANGE');
+    $checks['Result mailbox recipient'] = filter_var($c['result_email_to'], FILTER_VALIDATE_EMAIL) !== false;
+    $checks['Trusted result sender'] = filter_var($c['result_email_from'], FILTER_VALIDATE_EMAIL) !== false;
+    $checks['IMAP mailbox login'] = filter_var($c['imap_username'], FILTER_VALIDATE_EMAIL) !== false
+        && $c['imap_app_password'] !== '' && !str_contains($c['imap_app_password'], 'CHANGE');
 
     return $checks;
 }
