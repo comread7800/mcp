@@ -14,6 +14,7 @@ $runtime = [
     'cURL extension' => function_exists('curl_init'),
     'OpenSSL/SSL streams' => extension_loaded('openssl') && in_array('ssl', stream_get_transports(), true),
     'Fileinfo extension' => class_exists('finfo'),
+    'Mbstring extension' => extension_loaded('mbstring'),
     'GD image extension' => extension_loaded('gd'),
     'Storage writable' => $storageOk,
     'Media writable' => $mediaOk,
@@ -38,7 +39,7 @@ require __DIR__ . '/partials/header.php';
         <ul class="check-list">
             <?php foreach ($runtime as $label => $ok): ?><li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✓' : '!' ?></span><?= e($label) ?></li><?php endforeach; ?>
         </ul>
-        <p class="muted">GD is used to normalize result attachments to 1080x1350 when needed. OpenSSL streams are used to read the Gmail result inbox over IMAP without requiring the PHP IMAP extension.</p>
+        <p class="muted">GD is used to normalize result attachments to 1080x1350 when needed. Mbstring is required for safe Instagram caption/alt-text length handling. OpenSSL streams are used to read the Gmail result inbox over IMAP without requiring the PHP IMAP extension.</p>
     </div>
 </section>
 
