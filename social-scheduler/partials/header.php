@@ -11,7 +11,6 @@ $nav = [
     'trigger.php' => ['label' => 'Work Trigger', 'short' => 'Trigger'],
     'instagram.php' => ['label' => 'Instagram', 'short' => 'Instagram'],
     'bridge.php' => ['label' => 'Auto Bridge', 'short' => 'Bridge'],
-    'mcp-status.php' => ['label' => 'MCP', 'short' => 'MCP'],
     'logs.php' => ['label' => 'Logs', 'short' => 'Logs'],
     'setup.php' => ['label' => 'Setup', 'short' => 'Setup'],
 ];
