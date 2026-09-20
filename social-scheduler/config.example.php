@@ -58,4 +58,12 @@ return [
     'storage_path' => __DIR__ . '/storage',
     'media_path' => __DIR__ . '/media',
     'media_max_bytes' => 12 * 1024 * 1024,
+
+    // Keep Instagram media high quality. Valid range is 92-100.
+    // Correct 1080x1350 JPEG slides are passed through without re-encoding.
+    'media_jpeg_quality' => 96,
+
+    // Temporary public media remains available to Meta for 24 hours,
+    // then cron deletes staged post images automatically.
+    'media_retention_seconds' => 86400,
 ];
