@@ -1,0 +1,16 @@
+Options -Indexes
+RewriteEngine On
+RewriteRule ^(?:storage|lib)(?:/|$) - [F,L,NC]
+
+<IfModule mod_authz_core.c>
+    <FilesMatch "^(config\.php|config\.example\.php|bootstrap\.php|.*\.(?:log|lock|json))$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    <FilesMatch "^(config\.php|config\.example\.php|bootstrap\.php|.*\.(?:log|lock|json))$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
