@@ -145,6 +145,102 @@ function app_db(): bool
     return true;
 }
 
+function default_work_trigger_instruction(): string
+{
+    return <<<'TEXT'
+CREATIVE DIRECTION — WEBKITTI PREMIUM CREATOR STUDIO
+
+Create every Instagram carousel as an original WebKitti-branded premium editorial post inspired by a bright modern creator workspace.
+
+Core look:
+- exact portrait canvas 1080x1350 (4:5)
+- bright white / soft ice-blue environment with clean natural light
+- premium glossy finish, crisp HD details and strong depth
+- WebKitti wordmark/header near the top where appropriate
+- bold oversized headline hierarchy using deep navy plus electric blue emphasis
+- generous whitespace and highly readable mobile-first typography
+- rounded premium information cards with realistic app/product/tool icons
+- polished desk/workspace composition with realistic laptop, phone, notebook, plants, devices or other topic-relevant props
+- when a creator/character is useful, use an ORIGINAL friendly stylized 3D creator character with believable lighting, anatomy, hands and facial details; do not copy a specific existing character
+- use realistic/original product and software visuals rather than generic sci-fi filler
+- every image must feel intentionally art-directed, not like a random AI collage
+
+Cover slide:
+- make slide 1 the strongest, most scroll-stopping frame
+- WebKitti branding at top
+- one large central headline, maximum 3 short lines
+- 3–4 compact story/tool teaser cards only when useful
+- one clear hero visual connected to the topic
+- clean footer/CTA area; never overcrowd
+
+Story slides:
+- keep the same visual system and brand consistency
+- one main story/tool per slide
+- use a realistic hero visual or product/UI representation
+- explain the important points in concise Hindi with strong visual hierarchy
+- use cards/callouts for “क्या हुआ?”, “क्यों जरूरी?”, “किसके लिए?”, and “Takeaway” rather than dense paragraphs
+
+Image quality:
+- final output must be sharp, clean and professional
+- do not intentionally downscale or heavily compress
+- avoid pixelation, blur, warped logos, broken text, malformed hands, duplicate objects and unreadable tiny copy
+- use exact 1080x1350 JPEG whenever possible
+- keep the highest practical quality for the final attachment
+
+Originality:
+- use the supplied visual direction as a design language, not as a frame-by-frame copy
+- create a fresh composition for each post
+- keep WebKitti branding consistent while changing scene, props and visual storytelling to match the topic
+TEXT;
+}
+
+function work_trigger_instruction(): string
+{
+    try {
+        $saved = with_state(static fn(array $state): string => trim((string)($state['meta']['work_trigger_instruction'] ?? '')));
+        if ($saved !== '') {
+            return $saved;
+        }
+    } catch (Throwable) {
+        // Use the built-in creative direction during first-run/storage errors.
+    }
+    return default_work_trigger_instruction();
+}
+
+function set_work_trigger_instruction(string $instruction): void
+{
+    $instruction = trim($instruction);
+    if ($instruction === '') {
+        throw new RuntimeException('Trigger instruction cannot be empty.');
+    }
+    if (strlen($instruction) > 20000) {
+        throw new RuntimeException('Trigger instruction is too long. Keep it under 20,000 characters.');
+    }
+
+    with_state(static function(array &$state) use ($instruction): void {
+        $state['meta']['work_trigger_instruction'] = $instruction;
+        $state['meta']['work_trigger_instruction_updated_at'] = app_now()->format(DateTimeInterface::ATOM);
+    }, true);
+}
+
+function reset_work_trigger_instruction(): void
+{
+    with_state(static function(array &$state): void {
+        unset($state['meta']['work_trigger_instruction']);
+        $state['meta']['work_trigger_instruction_updated_at'] = app_now()->format(DateTimeInterface::ATOM);
+    }, true);
+}
+
+function work_trigger_instruction_updated_at(): ?string
+{
+    try {
+        return with_state(static fn(array $state): ?string => isset($state['meta']['work_trigger_instruction_updated_at'])
+            ? (string)$state['meta']['work_trigger_instruction_updated_at'] : null);
+    } catch (Throwable) {
+        return null;
+    }
+}
+
 function publisher_mode(): string
 {
     $configured = (string)app_config()['publisher_mode'];
@@ -467,6 +563,8 @@ function build_email_job(array $schedule, DateTimeImmutable $triggeredAt, string
         . 'RESULT_EMAIL_TO: ' . $config['result_email_to'] . "\n"
         . 'RESULT_SUBJECT_TAG: [' . $config['result_subject_tag'] . "]\n\n"
         . "PROMPT:\n" . trim($schedule['prompt']) . "\n\n"
+        . "GLOBAL TRIGGER INSTRUCTION:\n" . work_trigger_instruction() . "\n\n"
+        . "IMPORTANT: The GLOBAL TRIGGER INSTRUCTION overrides conflicting visual/design/media directions inside PROMPT. The FINAL completion/publishing route in EXECUTION RULES overrides any conflicting publisher instructions inside PROMPT.\n\n"
         . "EXECUTION RULES:\n"
         . "1. Execute the prompt fully; research current information when the prompt requires it.\n"
         . "2. Prepare the final Instagram caption and every required visual/media asset.\n"
