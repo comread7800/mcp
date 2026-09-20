@@ -1,7 +1,7 @@
 DirectoryIndex index.php
 Options -Indexes
 
-<FilesMatch "^(config\.php|config\.example\.php|app\.php|hub\.php|instagram-bootstrap\.php|.*\.(?:log|lock|json))$">
+<FilesMatch "^(config\.php|config\.example\.php|app\.php|hub\.php|instagram-bootstrap\.php|result-bootstrap\.php|.*\.(?:log|lock|json))$">
     Require all denied
 </FilesMatch>
 
