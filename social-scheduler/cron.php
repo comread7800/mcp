@@ -4,7 +4,8 @@ declare(strict_types=1);
 require __DIR__ . '/result-bootstrap.php';
 
 header('Content-Type: application/json; charset=utf-8');
-@set_time_limit(240);
+@ignore_user_abort(true);
+@set_time_limit(600);
 
 try {
     $config = app_config();
@@ -44,8 +45,16 @@ try {
         }
     }
 
+    $bridgeFailed = isset($bridgeResult['error']);
+    foreach ((array)($bridgeResult['processed'] ?? []) as $processed) {
+        if (strtolower((string)($processed['status'] ?? '')) === 'failed') {
+            $bridgeFailed = true;
+            break;
+        }
+    }
+
     echo json_encode([
-        'ok' => !isset($bridgeResult['error']),
+        'ok' => !$bridgeFailed,
         'checkedAt' => app_now()->format(DateTimeInterface::ATOM),
         'publisherMode' => publisher_mode(),
         'scheduledJobs' => $scheduleResults,
