@@ -1,0 +1,45 @@
+name: QA Result Bridge
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP syntax
+        run: |
+          find social-scheduler -type f -name '*.php' -print0 | sort -z | xargs -0 -n1 php -l
+
+      - name: Verify read-result recovery
+        run: |
+          grep -q "UID SEARCH SINCE" social-scheduler/lib/ResultMailbox.php
+          ! grep -q "UID SEARCH UNSEEN SUBJECT" social-scheduler/lib/ResultMailbox.php
+          grep -q "candidateLimit" social-scheduler/lib/ResultMailbox.php
+          grep -q "handled >= \$limit" social-scheduler/lib/ResultProcessor.php
+
+      - name: Build deploy ZIP
+        run: |
+          zip -r webkitti-social-scheduler-result-bridge-fix.zip social-scheduler \
+            -x 'social-scheduler/config.php' \
+               'social-scheduler/storage/*.json' \
+               'social-scheduler/storage/*.log' \
+               'social-scheduler/storage/*.lock' \
+               'social-scheduler/media/*.jpg' \
+               'social-scheduler/media/*.jpeg' \
+               'social-scheduler/media/*.png' \
+               'social-scheduler/media/*.webp'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webkitti-result-bridge-fix
+          path: webkitti-social-scheduler-result-bridge-fix.zip
+          if-no-files-found: error
+          retention-days: 7
