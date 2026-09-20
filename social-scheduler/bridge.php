@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'cURL extension' => function_exists('curl_init'),
                 'OpenSSL/SSL streams' => extension_loaded('openssl') && in_array('ssl', stream_get_transports(), true),
                 'Fileinfo extension' => class_exists('finfo'),
+                'Mbstring extension' => extension_loaded('mbstring'),
                 'GD image extension' => extension_loaded('gd'),
                 'Storage writable' => is_dir((string)$config['storage_path']) && is_writable((string)$config['storage_path']),
                 'Media writable' => is_dir((string)$config['media_path']) && is_writable((string)$config['media_path']),
