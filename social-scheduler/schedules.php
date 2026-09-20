@@ -78,7 +78,10 @@ require __DIR__ . '/partials/header.php';
         <p>Your Hostinger cron calls <code>cron.php</code>. When a schedule is due, this site sends a unique Gmail job to ChatGPT Work. ChatGPT does not own the clock.</p>
         <p class="muted">Current publisher mode: <strong><?= e(match(publisher_mode()){'email_bridge'=>'Auto Email Bridge','instagram_mcp'=>'Direct Instagram MCP',default=>'Metricool'}) ?></strong>. The website inserts the correct completion route into every trigger email automatically.</p>
         <p class="muted">Recommended times: 08:00, 12:30, 17:30, 21:30 IST.</p>
-        <a class="text-link" href="trigger.php">Open Work trigger instructions →</a>
+        <div class="quick-actions">
+            <a class="button primary" href="trigger.php?edit_instruction=1">Change Trigger Instruction</a>
+            <a class="button secondary" href="trigger.php">View Work Trigger</a>
+        </div>
     </div>
 </section>
 
