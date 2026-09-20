@@ -35,6 +35,16 @@ final class ResultProcessor
             $handled = 0;
             foreach ($messages as $message) {
                 $uid = (int)$message['uid'];
+
+                if ($this->failureAttempts($uid) >= 5) {
+                    $results[] = [
+                        'uid' => $uid,
+                        'status' => 'safety_limit_skipped',
+                        'attempts' => $this->failureAttempts($uid),
+                    ];
+                    continue;
+                }
+
                 try {
                     $parsed = $this->parseMime((string)$message['raw']);
                     $this->assertTrustedResult($parsed);
@@ -234,6 +244,13 @@ final class ResultProcessor
                 }
             }
         }, true);
+    }
+
+    private function failureAttempts(int $uid): int
+    {
+        return with_state(static function(array $state) use ($uid): int {
+            return (int)($state['meta']['result_failures'][(string)$uid]['attempts'] ?? 0);
+        });
     }
 
     private function incrementFailure(int $uid, string $error): int
