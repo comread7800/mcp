@@ -58,7 +58,7 @@ function app_config(): array
     $config['imap_app_password'] = $imapPassword !== '' ? $imapPassword : $config['smtp_app_password'];
     $config['imap_mailbox'] = trim((string)($config['imap_mailbox'] ?? 'INBOX')) ?: 'INBOX';
     $config['result_email_max_bytes'] = (int)($config['result_email_max_bytes'] ?? (40 * 1024 * 1024));
-    $config['result_max_messages_per_run'] = max(1, min(5, (int)($config['result_max_messages_per_run'] ?? 2)));
+    $config['result_max_messages_per_run'] = max(1, min(5, (int)($config['result_max_messages_per_run'] ?? 1)));
 
     try {
         new DateTimeZone($config['timezone']);
