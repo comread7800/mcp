@@ -7,8 +7,8 @@ require __DIR__ . '/partials/header.php';
 ?>
 <section class="card">
     <div class="eyebrow">Website delivery log</div>
-    <h2>Recent Gmail trigger runs</h2>
-    <p class="muted">This log confirms whether the website successfully handed a job to Gmail. Instagram publishing status is checked separately through Metricool or the direct MCP.</p>
+    <h2>Recent automation and publishing runs</h2>
+    <p class="muted">This log shows Gmail trigger delivery plus Email Bridge / Meta Instagram publishing progress and exact final errors.</p>
     <?php $logs = recent_logs(100); ?>
     <?php if (!$logs): ?><div class="empty">No runs yet.</div>
     <?php else: ?><div class="log-list">
