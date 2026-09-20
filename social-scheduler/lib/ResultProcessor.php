@@ -56,15 +56,12 @@ final class ResultProcessor
                         throw new RuntimeException('Instagram carousel supports at most 10 images.');
                     }
 
-                    $staged = [];
                     $items = [];
-                    try {
                         foreach ($attachments as $attachment) {
                             $stage = $this->stager->stage([
                                 'base64_data' => base64_encode((string)$attachment['bytes']),
                                 'fit_4_5' => true,
                             ]);
-                            $staged[] = $stage['public_url'];
                             $items[] = [
                                 'url' => $stage['public_url'],
                                 'alt_text' => 'Webkitti Instagram carousel slide',
@@ -111,7 +108,12 @@ final class ResultProcessor
                             'published_at' => app_now()->format(DateTimeInterface::ATOM),
                         ]);
                         $this->mailbox->markSeen($uid);
-                        add_log(null, 'RESULT:' . substr($dedupeKey, 0, 12), 'sent', 'Direct Instagram publish completed from SOCIAL_READY email. ' . ((string)($publish['permalink'] ?? '')));
+                        add_log(
+                            null,
+                            'RESULT:' . substr($dedupeKey, 0, 12),
+                            'sent',
+                            'Direct Instagram publish completed. Temporary staged media will be deleted automatically after 24 hours. ' . ((string)($publish['permalink'] ?? ''))
+                        );
                         $results[] = [
                             'uid' => $uid,
                             'status' => 'published',
@@ -120,11 +122,8 @@ final class ResultProcessor
                             'permalink' => $publish['permalink'] ?? null,
                             'slides' => count($items),
                         ];
-                    } finally {
-                        foreach ($staged as $url) {
-                            try { $this->stager->deleteStagedUrl((string)$url); } catch (Throwable) {}
-                        }
-                    }
+                    // Staged media is intentionally retained for Meta for 24 hours.
+                    // cron.php removes expired temporary images automatically.
                 } catch (Throwable $e) {
                     $attempts = $this->incrementFailure($uid, $e->getMessage());
                     add_log(null, 'RESULT-UID:' . $uid, 'failed', 'Result bridge attempt ' . $attempts . ': ' . $e->getMessage());
