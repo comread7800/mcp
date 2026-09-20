@@ -166,7 +166,12 @@ final class ResultProcessor
             return str_starts_with(strtolower((string)($a['mime'] ?? '')), 'image/')
                 && (string)($a['bytes'] ?? '') !== '';
         }));
-        usort($images, static fn(array $a, array $b): int => strnatcasecmp((string)$a['filename'], (string)$b['filename']));
+        $allNumbered = $images !== [] && count(array_filter($images, static fn(array $a): bool =>
+            (bool)preg_match('/^slide[-_ ]?\d+/i', (string)($a['filename'] ?? ''))
+        )) === count($images);
+        if ($allNumbered) {
+            usort($images, static fn(array $a, array $b): int => strnatcasecmp((string)$a['filename'], (string)$b['filename']));
+        }
         return $images;
     }
 
