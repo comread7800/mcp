@@ -94,6 +94,7 @@ require __DIR__ . '/partials/header.php';
         <p class="muted">Use the menu above for schedules, Work trigger instructions, Instagram account connection, MCP endpoint, logs, and full setup checks.</p>
         <div class="quick-actions">
             <a class="button primary" href="schedules.php">Manage schedules</a>
+            <a class="button secondary" href="trigger.php?edit_instruction=1">Change Trigger Instruction</a>
             <a class="button secondary" href="bridge.php">Open Auto Bridge</a>
         </div>
     </div>
