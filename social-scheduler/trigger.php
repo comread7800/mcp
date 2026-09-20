@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+
 require __DIR__ . '/hub.php';
 hub_require_login();
 
@@ -11,7 +12,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_verify($_POST['csrf'] ?? null);
         if (($_POST['action'] ?? '') === 'test_email') {
             $tag = app_config()['message_tag'];
-            email_send('[' . $tag . '] Prompt Bridge TEST | ' . app_now()->format('Y-m-d H:i:s'), '[' . $tag . "]\nSOURCE: TEST\nPrompt Bridge connection test. Do not create or publish content.");
+            email_send(
+                '[' . $tag . '] Prompt Bridge TEST | ' . app_now()->format('Y-m-d H:i:s'),
+                '[' . $tag . "]\nSOURCE: TEST\nPrompt Bridge connection test. Do not create or publish content."
+            );
             add_log(null, null, 'sent', 'Email connection test handed to Gmail SMTP successfully.');
             hub_set_flash('Test Gmail message sent successfully.');
         }
@@ -21,59 +25,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $config = app_config();
-$mode = $config['publisher_mode'];
+$mode = publisher_mode();
 $pageTitle = 'Work Trigger · ' . $config['app_name'];
 require __DIR__ . '/partials/header.php';
 
-if ($mode === 'instagram_mcp') {
-$instruction = <<<TEXT
+$common = <<<TEXT
 When a NEW Gmail message arrives from {$config['mail_from']} and its subject starts with [{$config['message_tag']}], process that exact newly arrived message as one unique automation job.
 
 Use the full subject plus TRIGGERED_AT as the unique job identity. If the body contains SOURCE: TEST, stop and do nothing.
 
 The website controls timing. Never create a ChatGPT time-based schedule.
 
-Read the PROMPT section completely and execute it fully.
+Read the PROMPT section completely and execute it fully. Research current information from official/reputable sources when requested. Reject rumors, unsupported claims, fake statistics, stale recycled stories, and obvious duplicates. Do not abandon a valid new job merely because a related topic was used recently; choose different fresh stories and expand the research window up to 48 hours if necessary.
 
-For every valid job:
-1. Research and create all requested caption/media completely.
-2. Check the connected Direct Instagram MCP with instagram_connection_status.
-3. Check instagram_recent_posts and avoid obvious duplicate content, but do not skip a valid new job just because related topics were used recently.
-4. If generated media is not already a durable public HTTPS JPEG URL, use instagram_stage_media for each slide.
-5. For a carousel, call instagram_publish_carousel exactly once with all slides in the correct order.
-6. Use the full email subject plus TRIGGERED_AT as job_id.
-7. Before any retry, call instagram_publication_status with the same job_id.
-8. Never use Metricool, Composio, or another publishing fallback.
-9. If the MCP returns PUBLISHED/published, report media_id and permalink.
-10. If it returns in-progress/pending, do not submit another copy.
-11. If it returns failed/error, report the exact error and stop.
-12. Never claim success unless the direct Instagram MCP confirms publication.
+For carousel jobs, create the complete final caption and every final slide before the completion step. Keep the requested Hindi/Indian-audience writing, date/source accuracy, 1080x1350 portrait design, premium white-dominant blue/cyan/purple visual language, strong first slide, mobile-readable story slides, and final CTA. Retry one failed media-generation step once. Unsupported carousel music/audio must never block completion.
+TEXT;
 
-Keep the requested Hindi/Indian-audience carousel design, research quality, caption quality, date/source accuracy, and media rules from the email PROMPT.
+if ($mode === 'email_bridge') {
+    $instruction = $common . <<<TEXT
+
+
+FINAL COMPLETION ROUTE — EMAIL BRIDGE:
+1. Do NOT publish through Metricool, MCP, Composio, Instagram directly, or any other publisher.
+2. After the caption and all final slides are complete, send exactly ONE Gmail result email to {$config['result_email_to']}.
+3. The result subject MUST be:
+[{$config['result_subject_tag']}] <the exact full original trigger subject>
+
+4. The plain-text body MUST contain:
+[{$config['result_subject_tag']}]
+JOB_KEY_BEGIN
+<the exact full original trigger subject>
+JOB_KEY_END
+SCHEDULE_ID: <copy SCHEDULE_ID from the trigger email>
+TRIGGERED_AT: <copy TRIGGERED_AT from the trigger email>
+SLIDE_COUNT: <number of attached final slides>
+CAPTION_BEGIN
+<complete final Instagram caption>
+CAPTION_END
+
+5. Attach ONLY the final Instagram images. Name them slide-01.jpg, slide-02.jpg, slide-03.jpg and so on, in exact posting order. Do not attach drafts, source screenshots, references, PDFs, ZIP files, or duplicate versions.
+6. Use JPEG 1080x1350 (4:5) when possible. The website will safely normalize supported image attachments before Meta publishing.
+7. Sending the [{$config['result_subject_tag']}] Gmail result is the required completion step. If Gmail send fails, report the exact Gmail error and do not claim completion.
+8. Once the result email is sent successfully, stop. The website cron will read the result mailbox and publish directly through the Meta Instagram API.
+TEXT;
+} elseif ($mode === 'instagram_mcp') {
+    $instruction = $common . <<<TEXT
+
+
+FINAL COMPLETION ROUTE — DIRECT MCP:
+1. Publish ONLY through the connected direct Instagram MCP.
+2. Check instagram_connection_status and instagram_recent_posts.
+3. Use the full subject plus TRIGGERED_AT as job_id.
+4. Stage media if needed, then call instagram_publish_carousel exactly once.
+5. Verify status/media_id/permalink. Never claim success unless the MCP confirms publication.
 TEXT;
 } else {
-$instruction = <<<TEXT
-When a NEW Gmail message arrives from {$config['mail_from']} and its subject starts with [{$config['message_tag']}], process that exact newly arrived message as one unique automation job.
+    $instruction = $common . <<<TEXT
 
-Use the full subject plus TRIGGERED_AT as the unique job identity. If the body contains SOURCE: TEST, stop and do nothing.
 
-The website controls timing. Never create a ChatGPT time-based schedule.
-
-Read the PROMPT section completely and execute it fully.
-
-For every valid job:
-1. Research and create all requested caption/media completely.
-2. Check recent @webkitti Metricool posts and avoid obvious duplicate content, but do not skip a valid new job only because similar topics were used recently.
-3. Publish ONLY through connected Metricool brand webkitti, brand ID 7005701.
-4. Do not use Composio or another fallback publisher.
-5. Create exactly one Instagram post/carousel with all media in order.
-6. Use autoPublish true and isAiGenerated true when supported.
-7. Publish as soon as content is ready. If Metricool requires a future timestamp, use the earliest valid time in the brand timezone.
-8. If Metricool returns PENDING or PUBLISHING, do not submit another copy.
-9. If Metricool returns ERROR or FAILED, report the exact error and stop.
-10. Never claim success unless Metricool confirms publication.
-
-Keep the requested Hindi/Indian-audience carousel design, research quality, caption quality, date/source accuracy, and media rules from the email PROMPT.
+FINAL COMPLETION ROUTE — METRICOOL:
+1. Publish ONLY through connected Metricool brand webkitti, brand ID 7005701.
+2. Do not use Composio or another fallback publisher.
+3. Create exactly one Instagram post/carousel with all media in order.
+4. Use autoPublish true and isAiGenerated true when supported.
+5. Publish as soon as possible; if a future timestamp is required, use the earliest valid time.
+6. If Metricool reports PENDING/PUBLISHING, do not submit another copy. If ERROR/FAILED, report the exact error.
+7. Never claim success unless Metricool confirms publication.
 TEXT;
 }
 ?>
@@ -84,18 +101,29 @@ TEXT;
     <div class="card">
         <div class="eyebrow">Transport</div>
         <h2>Gmail event trigger</h2>
-        <p>The website sends one unique email per job. ChatGPT Work reacts to the incoming Gmail event.</p>
-        <div class="meta-card"><span>Sender</span><strong><?= e((string)$config['mail_from']) ?></strong></div>
-        <div class="meta-card"><span>Tag</span><strong>[<?= e((string)$config['message_tag']) ?>]</strong></div>
-        <div class="meta-card"><span>Publisher mode</span><strong><?= $mode === 'instagram_mcp' ? 'Direct Instagram MCP' : 'Metricool' ?></strong></div>
-        <form method="post" style="margin-top:16px"><input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="test_email"><button class="button secondary" type="submit">Send Gmail TEST</button></form>
+        <p>The website sends one unique email per scheduled job. ChatGPT Work reacts to the incoming Gmail event.</p>
+        <div class="meta-card"><span>Trigger sender</span><strong><?= e((string)$config['mail_from']) ?></strong></div>
+        <div class="meta-card"><span>Trigger tag</span><strong>[<?= e((string)$config['message_tag']) ?>]</strong></div>
+        <div class="meta-card"><span>Publisher mode</span><strong><?= e(match($mode){'email_bridge'=>'Auto Email Bridge','instagram_mcp'=>'Direct Instagram MCP',default=>'Metricool'}) ?></strong></div>
+        <?php if ($mode === 'email_bridge'): ?>
+            <div class="meta-card"><span>Result email</span><strong><?= e((string)$config['result_email_to']) ?></strong></div>
+            <div class="meta-card"><span>Result tag</span><strong>[<?= e((string)$config['result_subject_tag']) ?>]</strong></div>
+        <?php endif; ?>
+        <form method="post" style="margin-top:16px">
+            <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+            <input type="hidden" name="action" value="test_email">
+            <button class="button secondary" type="submit">Send Gmail TEST</button>
+        </form>
     </div>
 
     <div class="card">
         <div class="eyebrow">Important</div>
         <h2>One Work trigger only</h2>
-        <p class="muted">Do not create 4 ChatGPT time schedules. Your website schedules control the clock. Work only reacts to matching incoming Gmail messages.</p>
-        <p class="muted">Change <code>publisher_mode</code> in <code>config.php</code> only after the direct MCP has passed a real Instagram test.</p>
+        <p class="muted">Do not create separate ChatGPT clock schedules. Your website owns the 08:00 / 12:30 / 17:30 / 21:30 timing; Work only reacts to matching incoming Gmail jobs.</p>
+        <?php if ($mode === 'email_bridge'): ?>
+            <p class="muted">The final Gmail result goes back to the website mailbox. Cron reads the attachments and the website publishes through the already-tested Meta Instagram API.</p>
+            <a class="text-link" href="bridge.php">Open Auto Bridge status →</a>
+        <?php endif; ?>
     </div>
 </section>
 
