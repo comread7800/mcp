@@ -53,8 +53,9 @@ function app_config(): array
     $config['result_email_from'] = trim((string)($config['result_email_from'] ?? '')) ?: $config['mail_to'];
     $config['imap_host'] = trim((string)($config['imap_host'] ?? 'imap.gmail.com')) ?: 'imap.gmail.com';
     $config['imap_port'] = (int)($config['imap_port'] ?? 993);
-    $config['imap_username'] = trim((string)($config['imap_username'] ?? $config['smtp_username']));
-    $config['imap_app_password'] = preg_replace('/\s+/', '', (string)($config['imap_app_password'] ?? $config['smtp_app_password'])) ?? '';
+    $config['imap_username'] = trim((string)($config['imap_username'] ?? '')) ?: $config['smtp_username'];
+    $imapPassword = preg_replace('/\s+/', '', (string)($config['imap_app_password'] ?? '')) ?? '';
+    $config['imap_app_password'] = $imapPassword !== '' ? $imapPassword : $config['smtp_app_password'];
     $config['imap_mailbox'] = trim((string)($config['imap_mailbox'] ?? 'INBOX')) ?: 'INBOX';
     $config['result_email_max_bytes'] = (int)($config['result_email_max_bytes'] ?? (40 * 1024 * 1024));
     $config['result_max_messages_per_run'] = max(1, min(5, (int)($config['result_max_messages_per_run'] ?? 2)));
