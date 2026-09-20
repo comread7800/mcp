@@ -35,7 +35,7 @@ return [
     'imap_app_password' => '',
     'imap_mailbox' => 'INBOX',
     'result_email_max_bytes' => 41943040,
-    'result_max_messages_per_run' => 2,
+    'result_max_messages_per_run' => 1,
 
     // Public HTTPS URL where this ONE social-scheduler folder is deployed.
     'public_base_url' => 'https://example.com/social-scheduler',
