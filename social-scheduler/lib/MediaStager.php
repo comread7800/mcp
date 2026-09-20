@@ -29,7 +29,8 @@ final class MediaStager
             throw new RuntimeException('Only JPEG, PNG, and WEBP images are supported by this staging helper.');
         }
 
-        [$jpeg, $width, $height] = $this->toInstagramJpeg($bytes, $mime);
+        $fit45 = !empty($args['fit_4_5']);
+        [$jpeg, $width, $height] = $this->toInstagramJpeg($bytes, $mime, $fit45);
         if (strlen($jpeg) > 8 * 1024 * 1024) {
             throw new RuntimeException('Converted JPEG is over Instagram\'s 8 MB image limit.');
         }
@@ -54,6 +55,22 @@ final class MediaStager
             'bytes' => strlen($jpeg),
             'sha256' => hash('sha256', $jpeg),
         ];
+    }
+
+    public function deleteStagedUrl(string $url): void
+    {
+        $base = rtrim(igmcp_public_base_url(), '/') . '/media/';
+        if (!str_starts_with($url, $base)) {
+            return;
+        }
+        $name = basename((string)parse_url($url, PHP_URL_PATH));
+        if ($name === '' || !preg_match('/^[a-f0-9]{32}\.jpg$/', $name)) {
+            return;
+        }
+        $path = rtrim((string)$this->config['media_path'], '/') . '/' . $name;
+        if (is_file($path)) {
+            @unlink($path);
+        }
     }
 
     private function decodeBase64(string $value): string
@@ -122,7 +139,7 @@ final class MediaStager
         return (string)$finfo->buffer($bytes);
     }
 
-    private function toInstagramJpeg(string $bytes, string $mime): array
+    private function toInstagramJpeg(string $bytes, string $mime, bool $fit45 = false): array
     {
         if (!extension_loaded('gd')) {
             if ($mime !== 'image/jpeg') {
@@ -146,7 +163,25 @@ final class MediaStager
             throw new RuntimeException('Instagram image width must be at least 320 px.');
         }
 
-        if ($width > 1440) {
+        if ($fit45) {
+            $targetWidth = 1080;
+            $targetHeight = 1350;
+            $canvas = imagecreatetruecolor($targetWidth, $targetHeight);
+            $white = imagecolorallocate($canvas, 255, 255, 255);
+            imagefill($canvas, 0, 0, $white);
+
+            $scale = min($targetWidth / $width, $targetHeight / $height);
+            $newWidth = max(1, (int)round($width * $scale));
+            $newHeight = max(1, (int)round($height * $scale));
+            $x = (int)floor(($targetWidth - $newWidth) / 2);
+            $y = (int)floor(($targetHeight - $newHeight) / 2);
+
+            imagecopyresampled($canvas, $src, $x, $y, 0, 0, $newWidth, $newHeight, $width, $height);
+            imagedestroy($src);
+            $src = $canvas;
+            $width = $targetWidth;
+            $height = $targetHeight;
+        } elseif ($width > 1440) {
             $newWidth = 1440;
             $newHeight = (int)round($height * ($newWidth / $width));
             $resized = imagecreatetruecolor($newWidth, $newHeight);
