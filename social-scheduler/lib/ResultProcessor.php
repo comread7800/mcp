@@ -72,11 +72,33 @@ final class ResultProcessor
                         }
 
                         $publishJobId = 'MAIL-' . substr(hash('sha256', $jobKey), 0, 48);
+                        add_log(
+                            null,
+                            'RESULT-UID:' . $uid,
+                            'pending',
+                            'Prepared ' . count($items) . ' slide(s); handing the job to Meta Instagram API.'
+                        );
+
                         $publish = count($items) === 1
                             ? $this->instagram->publishImage($publishJobId, $items[0]['url'], $caption, $items[0]['alt_text'])
                             : $this->instagram->publishCarousel($publishJobId, $items, $caption);
 
                         $status = strtolower((string)($publish['status'] ?? ''));
+                        if ($status === 'in_progress') {
+                            add_log(
+                                null,
+                                'RESULT-UID:' . $uid,
+                                'pending',
+                                'Instagram job is still in progress; leaving the result email unread for a later retry.'
+                            );
+                            $results[] = [
+                                'uid' => $uid,
+                                'status' => 'deferred',
+                                'job_key' => $jobKey,
+                                'retry_after_seconds' => $publish['retry_after_seconds'] ?? null,
+                            ];
+                            continue;
+                        }
                         if ($status !== 'published') {
                             throw new RuntimeException('Instagram did not confirm publication. Status: ' . ($status ?: 'unknown'));
                         }
@@ -106,7 +128,13 @@ final class ResultProcessor
                 } catch (Throwable $e) {
                     $attempts = $this->incrementFailure($uid, $e->getMessage());
                     add_log(null, 'RESULT-UID:' . $uid, 'failed', 'Result bridge attempt ' . $attempts . ': ' . $e->getMessage());
-                    if ($attempts >= 3) {
+                    if ($attempts >= 5) {
+                        add_log(
+                            null,
+                            'RESULT-UID:' . $uid,
+                            'failed',
+                            'Result email reached the 5-attempt safety limit and was marked seen. Last error: ' . $e->getMessage()
+                        );
                         try { $this->mailbox->markSeen($uid); } catch (Throwable) {}
                     }
                     $results[] = ['uid' => $uid, 'status' => 'failed', 'attempts' => $attempts, 'error' => $e->getMessage()];
