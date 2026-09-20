@@ -10,6 +10,24 @@ final class ResultMailbox
         $this->config = $config ?? app_config();
     }
 
+    public function testConnection(): array
+    {
+        $stream = $this->connect();
+        try {
+            $this->command($stream, 'LOGIN ' . $this->quote((string)$this->config['imap_username']) . ' ' . $this->quote((string)$this->config['imap_app_password']));
+            $select = $this->command($stream, 'SELECT ' . $this->quote((string)$this->config['imap_mailbox']));
+            return [
+                'ok' => true,
+                'host' => (string)$this->config['imap_host'],
+                'mailbox' => (string)$this->config['imap_mailbox'],
+                'selected' => stripos($select, ' OK ') !== false,
+            ];
+        } finally {
+            try { $this->command($stream, 'LOGOUT', false); } catch (Throwable) {}
+            fclose($stream);
+        }
+    }
+
     public function fetchReadyMessages(int $limit = 3): array
     {
         $limit = max(1, min(5, $limit));
