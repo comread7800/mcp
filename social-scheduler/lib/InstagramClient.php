@@ -245,7 +245,12 @@ final class InstagramClient
         try {
             [$connection, $token] = $this->connectionAndToken();
             $children = [];
+            $positions = [];
             $total = count($items);
+
+            // Create every child first so Meta can process the whole carousel in
+            // parallel. Waiting up to 60 seconds after each child made 10-slide
+            // carousels capable of exceeding the PHP/hosting runtime limit.
             foreach ($items as $index => $item) {
                 $position = $index + 1;
                 $this->store->log('instagram_carousel_child_creating', [
@@ -261,11 +266,23 @@ final class InstagramClient
                     $params['alt_text'] = mb_substr(trim((string)$item['alt_text']), 0, 1000);
                 }
                 $child = $this->createContainer($connection, $token, $params);
-                $childStatus = $this->waitForContainer($child, $token, 60);
                 $children[] = $child;
-                $this->store->log('instagram_carousel_child_ready', [
+                $positions[$child] = $position;
+
+                $this->store->log('instagram_carousel_child_created', [
                     'job_id' => $jobId,
                     'position' => $position,
+                    'total' => $total,
+                    'container_id' => $child,
+                ]);
+            }
+
+            $childStatuses = $this->waitForContainers($children, $token, 120);
+            foreach ($children as $child) {
+                $childStatus = $childStatuses[$child] ?? [];
+                $this->store->log('instagram_carousel_child_ready', [
+                    'job_id' => $jobId,
+                    'position' => (int)($positions[$child] ?? 0),
                     'container_id' => $child,
                     'status_code' => (string)($childStatus['status_code'] ?? ''),
                 ]);
@@ -395,6 +412,60 @@ final class InstagramClient
         } while (time() < $deadline);
 
         throw new RuntimeException('Instagram container ' . $containerId . ' did not finish within ' . $timeoutSeconds . ' seconds. Last status: ' . (string)($last['status_code'] ?? 'unknown'));
+    }
+
+    private function waitForContainers(array $containerIds, string $token, int $timeoutSeconds): array
+    {
+        $containerIds = array_values(array_unique(array_filter(array_map('strval', $containerIds))));
+        if ($containerIds === []) {
+            return [];
+        }
+
+        $deadline = time() + $timeoutSeconds;
+        $pending = array_fill_keys($containerIds, true);
+        $lastStatuses = [];
+
+        do {
+            foreach (array_keys($pending) as $containerId) {
+                $last = $this->request(
+                    'GET',
+                    '/' . rawurlencode($containerId),
+                    ['fields' => 'status_code,status'],
+                    $token
+                );
+                $lastStatuses[$containerId] = $last;
+                $status = strtoupper((string)($last['status_code'] ?? ''));
+
+                if (in_array($status, ['FINISHED', 'PUBLISHED'], true)) {
+                    unset($pending[$containerId]);
+                    continue;
+                }
+
+                if (in_array($status, ['ERROR', 'EXPIRED'], true)) {
+                    throw new RuntimeException(
+                        'Instagram container ' . $containerId . ' failed: '
+                        . (string)($last['status'] ?? $status)
+                    );
+                }
+            }
+
+            if ($pending === []) {
+                return $lastStatuses;
+            }
+
+            usleep(1500000);
+        } while (time() < $deadline);
+
+        $unfinished = [];
+        foreach (array_keys($pending) as $containerId) {
+            $unfinished[] = $containerId . '='
+                . (string)($lastStatuses[$containerId]['status_code'] ?? 'unknown');
+        }
+
+        throw new RuntimeException(
+            'Instagram carousel children did not finish within '
+            . $timeoutSeconds . ' seconds. Pending: ' . implode(', ', $unfinished)
+        );
     }
 
     private function publishContainer(array $connection, string $token, string $containerId): array
