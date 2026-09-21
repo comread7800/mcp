@@ -5,7 +5,7 @@ require __DIR__ . '/result-bootstrap.php';
 
 header('Content-Type: application/json; charset=utf-8');
 @ignore_user_abort(true);
-@set_time_limit(600);
+@set_time_limit(900);
 
 try {
     $config = app_config();
