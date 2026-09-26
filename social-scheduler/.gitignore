@@ -1,6 +1,0 @@
-config.php
-storage/*.json
-storage/*.log
-storage/*.lock
-media/*
-!media/.htaccess
